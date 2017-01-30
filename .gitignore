@@ -1,0 +1,11 @@
+.stack-work/
+.hsenv*
+cabal-dev/
+
+.cabal-sandbox
+cabal.sandbox.config
+
+*.hi
+*.o
+
+.DS_Store

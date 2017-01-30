@@ -1,0 +1,80 @@
+name:                eff-experiments
+version:             0.1.0.0
+synopsis:            Initial project template from stack
+description:         Please see README.md
+homepage:            https://github.com/githubuser/eff-experiments#readme
+license:             BSD3
+license-file:        LICENSE
+author:              Author name here
+maintainer:          example@example.com
+copyright:           2016 Author name here
+category:            Web
+build-type:          Simple
+-- extra-source-files:
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Data.Iota.Eff1
+                     , Data.Iota.FTCQueue1
+                     , Data.Iota.OpenUnion51
+                     , Data.Iota.Strict.Eff1
+                     , Data.Iota.Strict.FTCQueue1
+                     , Data.Iota.Strict.OpenUnion51
+                     , Data.Iota.Unified.Eff1
+                     , Data.Iota.Unified.Eff2
+                     , Data.Iota.Unified.Indexed
+                     , Data.Iota.Unified.FTCQueue1
+                     , Data.Iota.Unified.OpenUnion51
+                     , Data.Iota.Tagged.Eff1
+                     , Data.Iota.Tagged.FTCQueue1
+                     , Data.Iota.Tagged.OpenUnion51
+  build-depends:       base >= 4.7 && < 5
+                    --  , eff  >= 0.1.0.0
+                     , mono-traversable
+                     , mono-traversable-instances
+                     , indexed
+                     , text
+                     , ghc-prim
+                     , typelits-witnesses
+                     , indexed-do-notation
+                     , template-haskell
+                     , haskell-src-meta
+                     , singletons
+  default-language:    Haskell2010
+
+executable eff-experiments-exe
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  build-depends:       base
+                     , eff-experiments
+  default-language:    Haskell2010
+
+test-suite eff-experiments-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Spec.hs
+  build-depends:       base
+                     , eff-experiments
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+
+benchmark eff-experiments-benchmark
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      bench
+  main-is:             Benchmarks.hs
+  other-modules:       Strict.Iota
+  build-depends:       base
+                     , eff-experiments
+                     , indexed
+                     , indexed-do-notation
+                     , eff
+                     , criterion
+                     , mtl
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/githubuser/eff-experiments

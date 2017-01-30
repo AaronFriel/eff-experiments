@@ -1,0 +1,21 @@
+packages:
+  - location: ./dep/eff
+#    extra-dep: false
+  - location: ./dep/indexed
+    extra-dep: true
+  # - location: ./indexed
+  #   extra-dep: true
+extra-deps:
+  - indexed-do-notation-0.1
+resolver: lts-7.18
+
+# See Note [ghc-mod bug]
+# apply-ghc-options: everything
+# ghc-options:
+#   "*": -opta-Wa,-mrelax-relocations=no -j4
+
+# Note [ghc-mod bug]
+# ~~~~~~~~~~~~~~~~~~
+# These options were created to fix https://github.com/DanielG/ghc-mod/issues/762
+# tl;dr: a type of dynamic relocation is not supported by ghc, need to disable
+# These options can be removed for GHC >= 7.10.4 || >= 8.0.2
