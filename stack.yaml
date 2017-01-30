@@ -1,6 +1,7 @@
 packages:
+  - .
   - location: ./dep/eff
-#    extra-dep: false
+    extra-dep: true
   - location: ./dep/indexed
     extra-dep: true
   # - location: ./indexed
