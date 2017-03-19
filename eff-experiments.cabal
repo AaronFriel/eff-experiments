@@ -30,6 +30,9 @@ library
                      , Data.Iota.Tagged.Eff1
                      , Data.Iota.Tagged.FTCQueue1
                      , Data.Iota.Tagged.OpenUnion51
+                     , Eff.Internal.Eff1
+                     , Eff.Internal.FTCQueue1
+                     , Eff.Internal.OpenUnion51
   build-depends:       base >= 4.7 && < 5
                     --  , eff  >= 0.1.0.0
                      , mono-traversable
