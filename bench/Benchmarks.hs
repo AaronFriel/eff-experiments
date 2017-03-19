@@ -18,7 +18,7 @@ import qualified Data.Iota.OpenUnion51 as I (Member)
 
 import qualified Strict.Iota as Strict
 import qualified Tagged as Tagged
--- import qualified Indexed as Indexed
+import qualified Indexed as Indexed
 import qualified Iota as I
 
 import Control.Monad
@@ -58,20 +58,22 @@ main = defaultMain [
   --     , bench "mtl" $ whnf pythr_MTL 200
   --     , bench "eff" $ whnf pythr_EFF 200
   --   ]
-  -- , bgroup "RRRRS"
-  --     [ bench "iota" $ whnf I.mainRRRRS_Eff 1000000
-  --     , bench "iota-strict" $ whnf Strict.mainRRRRS_Eff 1000000
-  --     , bench "iota-Tagged" $ whnf Tagged.mainRRRRS_Eff 1000000
-  --     , bench "mtl" $ whnf mainRRRRS_MTL 1000000
-  --     , bench "eff" $ whnf mainRRRRS_Eff 1000000
-  --   ]
-  -- , bgroup "SRRRR"
-  --     [ bench "iota" $ whnf I.mainSRRRR_Eff 1000000
-  --     , bench "iota-strict" $ whnf Strict.mainSRRRR_Eff 1000000
-  --     , bench "iota-Tagged" $ whnf Tagged.mainSRRRR_Eff 1000000
-  --     , bench "mtl" $ whnf mainSRRRR_MTL 1000000
-  --     , bench "eff" $ whnf mainSRRRR_Eff 1000000
-  --   ]
+  , bgroup "RRRRS"
+      [ bench "iota" $ whnf I.mainRRRRS_Eff 1000000
+      , bench "iota-strict" $ whnf Strict.mainRRRRS_Eff 1000000
+      , bench "iota-Tagged" $ whnf Tagged.mainRRRRS_Eff 1000000
+      , bench "iota-Indexed" $ whnf Indexed.mainRRRRS_Eff 1000000
+      , bench "mtl" $ whnf mainRRRRS_MTL 1000000
+      , bench "eff" $ whnf mainRRRRS_Eff 1000000
+    ]
+  , bgroup "SRRRR"
+      [ bench "iota" $ whnf I.mainSRRRR_Eff 1000000
+      , bench "iota-strict" $ whnf Strict.mainSRRRR_Eff 1000000
+      , bench "iota-Tagged" $ whnf Tagged.mainSRRRR_Eff 1000000
+      , bench "iota-Indexed" $ whnf Indexed.mainSRRRR_Eff 1000000
+      , bench "mtl" $ whnf mainSRRRR_MTL 1000000
+      , bench "eff" $ whnf mainSRRRR_Eff 1000000
+    ]
   ] ]
 
 

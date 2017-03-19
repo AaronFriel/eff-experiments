@@ -19,7 +19,7 @@
 -- {-# LANGUAGE QuasiQuotes #-}
 
 module Data.Iota.Unified.Indexed
- ( Eff )
+ -- ( Eff )
  where
 
 import Control.Monad.Indexed
@@ -341,29 +341,32 @@ put
        s -> Eff r i (AddIndex (State s) r i) ()
 put s = send (Put s)
 
--- {-# INLINE runState #-}
---
--- runState
---     :: forall r i j w s.
---        SingI (Decomp (State s) j)
---     => Eff (State s ': r) i j w -> s -> Eff r i (Reduce j) (w, s)
--- runState m s = loop s m
---   where
---     {-# INLINE loop #-}
---     loop s (Val x) = Val (x, s)
---     loop s m@(E u q) = loopE s (fromSing (sing :: Sing (Decomp (State s) j))) m
---       where
---         {-# INLINE loopE #-}
---         loopE s _ (Val x) = Val (x, s)
---         loopE s [] (E u q) = error "IMPOSSIBLE!"
---         loopE s (True:p) (E u q) =
---             case (unsafeCoer
+{-# INLINE runState #-}
+
+runState
+    :: forall r i j w s.
+       SingI (Decomp (State s) j)
+    => Eff (State s ': r) i j w -> s -> Eff r i (Reduce j) (w, s)
+runState m s = loop s m
+  where
+    {-# INLINE loop #-}
+    loop s (Val x) = Val (x, s)
+    loop s m@(E u q) = loopE s (fromSing (sing :: Sing (Decomp (State s) j))) m
+      where
+        {-# INLINE loopE #-}
+        loopE s _ (Val x) = Val (x, s)
+        loopE s [] (E u q) = error "IMPOSSIBLE!"
+        loopE s (True:p) (E u q) =
+            case (unsafeCoerce u :: State s v) of
+                (Put s') -> loopE s' p $ qApp (unsafeCoerce q) ()
+                (Get) -> loopE s p $ qApp (unsafeCoerce q) s
+        loopE s (False:p) (E u q) = E u (tsingleton (qComp q (loopE s p)))
 --     :: forall r i j w s a r' i' j' w'.
 --        SingI (Decomp (Fix s) j)
 --     => Eff (Fix s ': r) i j w
 --     -> _ -- ((a -> Eff r' i' j' w') -> Eff (Fix s : r) i j w)
 --     -> Eff '[] '[] '[] w
--- -- => Eff (Fix s ': r) i j w
+-- -- -- => Eff (Fix s ': r) i j w
 -- -- -> (Eff r i (Reduce j) w -> Eff '[] '[] '[] w)
 -- -- -> Eff r i (Reduce j) w
 -- runFix m i10s = loop i10s m
