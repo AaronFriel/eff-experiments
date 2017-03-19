@@ -19,13 +19,14 @@
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE UndecidableInstances  #-}
 {-# OPTIONS_GHC -fprint-explicit-kinds #-}
--- {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 module Data.Iota.Unified.Indexed3
  -- ( Eff )
  where
 
 import           Control.Monad.Indexed
+import Language.Haskell.IndexedDo (ido)
 import           Data.Proxy
 import           Data.Singletons
 import           Data.Singletons.Decide
@@ -189,7 +190,7 @@ type family AddEffect (i :: [(* -> *, Maybe Nat)]) (e :: * -> *) :: [(* -> *, Ma
 type family SetDepth (i :: [(* -> *, Maybe Nat)]) (e :: * -> *) (n :: Nat) :: [(* -> *, Maybe Nat)] where
   SetDepth                  '[] e n = '[]
   SetDepth ('(e, Nothing) ': r) e n = '(e, Just n) ': SetDepth r e n
-  SetDepth ('(e,  Just n) ': _) _ _ = TypeError
+  SetDepth ('(e,  Just _) ': _) e _ = TypeError
                                         ('Text "The effect " :<>: 'ShowType e
                                          :<>: 'Text " has already been interpreted.")
   SetDepth (            i ': r) e n = i ': SetDepth r e n 
@@ -217,11 +218,12 @@ type family EffectDepths' (i :: [(* -> *, Maybe Nat)]) (e :: * -> *) :: [Bool] w
     EffectDepths' ('(e, Just 1) ': r) e = True  ': EffectDepths' r e
     EffectDepths' ('(_, Just 1) ': r) e = False ': EffectDepths' r e
     EffectDepths' ('(u, Just n) ': r) e = EffectDepths' ('(u, Just (Pred n)) ': r) e
+    -- EffectDepths' ('(_, Nothing) ': r) e = False ': EffectDepths' r e 
 
 data Eff (i :: [(* -> *, Maybe Nat)]) (j :: [(* -> *, Maybe Nat)]) (a :: *)
   where
     Val :: a -> Eff i j a
-    E :: ctor v -> Arrs b a -> Eff i j a
+    E :: ctor b -> Arrs b a -> Eff i j a
 
 data HelloWorld (v :: *) where
         HelloWorld :: HelloWorld v
@@ -229,14 +231,12 @@ data HelloWorld (v :: *) where
 -- greet :: forall i. Eff '[] (AddEffect '[] HelloWorld) String
 greet = send (HelloWorld :: HelloWorld String)
 
-t_1 :: Eff '[] '[] String
-t_1 = Val "Foo"
+t1 :: Eff '[] '[] String
+t1 = Val "Foo"
 
-t_2 = greet >>>= ireturn
+t2 = greet >>>= ireturn
 
--- t_3 = greet >>>= const greet >>>= ireturn
-
--- runHelloWorld = 
+t2r = ("Hello, World!" ==) $ run $ runHelloWorld t2
 
 run :: (FullyInterpreted j ~ True) => Eff '[] j a -> a
 run (Val x) = x
@@ -244,15 +244,15 @@ run (Val x) = x
 send :: forall ctor v i. ctor v -> Eff i (AddEffect i ctor) v
 send t = E t (tsingleton Val)
 
---     ibind :: (a -> Eff r j k b) -> Eff r i j a -> Eff r i k b
---     k `ibind` Val x =
---         case k x of
---             E u q -> E u q
---             Val y -> Val y
---     k `ibind` E u q = E u (q |> k)
+data Multiply n (v :: *) where
+  Multiply :: (Num n) => n -> Multiply n ()
 
+data Square n (v :: *) where
+  Square :: (Num n) => Square n ()
 
---     k `ibind` E u q = E u (q |> k)
+data Add n (v :: *) where
+  Add :: (Num n) => n -> Add n ()
+
 
 qApp
     :: forall i j b w.
@@ -274,14 +274,14 @@ qComp g h = h . qApp g
 -- send :: t v -> Eff r i (AddIndex t r i) a
 
 runHelloWorld
-    :: forall r i j w b.
-       SingI (EffectDepths j HelloWorld)
-    => Eff i j w -> Eff i (RunEffect j HelloWorld) w
+    :: forall r i j w b e.
+       (e ~ HelloWorld, SingI (EffectDepths j e))
+    => Eff i j w -> Eff i (RunEffect j e) w
 runHelloWorld m = loop m
   where
     {-# INLINE loop #-}
     loop (Val x) = Val x
-    loop m@(E u q) = loopE (fromSing (sing :: Sing (EffectDepths j HelloWorld))) m
+    loop m@(E u q) = loopE (fromSing (sing :: Sing (EffectDepths j e))) m
       where
         -- loopE :: Proxy# (Sing (p ': ps)) -> Eff t t1 j a -> Eff r i (Reduce j) a
         {-# INLINE loopE #-}
@@ -289,6 +289,67 @@ runHelloWorld m = loop m
         loopE [] (E u q)        = error "IMPOSSIBLE!"
         loopE (True:p) (E u q)  = loopE p $ qApp (unsafeCoerce q) "Hello, World!"
         loopE (False:p) (E u q) = E u (tsingleton (qComp q (loopE p)))
+
+data Reader e v where
+  Reader :: Reader e e
+
+ask = send Reader
+
+runReader
+    :: forall r i j w b e.
+       SingI (EffectDepths j (Reader e))
+    => Eff i j w -> e -> Eff i (RunEffect j (Reader e)) w
+runReader m e = loop m
+  where
+    {-# INLINE loop #-}
+    loop (Val x) = Val x
+    loop m@(E u q) = loopE (fromSing (sing :: Sing (EffectDepths j (Reader e)))) m
+      where
+        -- loopE :: Proxy# (Sing (p ': ps)) -> Eff t t1 j a -> Eff r i (Reduce j) a
+        {-# INLINE loopE #-}
+        loopE _ (Val x)         = Val x
+        loopE [] (E u q)        = error "IMPOSSIBLE!"
+        loopE (True:p) (E u q)  = case (unsafeCoerce u) of 
+                                    Reader -> loopE p $ qApp (unsafeCoerce q) e
+        loopE (False:p) (E u q) = E u (tsingleton (qComp q (loopE p)))
+
+-- t3 = ask >>>= \a -> ireturn (1 + (a :: Int))
+-- t3r = runReader t3 (5 :: Int)
+
+-- runReader'
+--     :: forall r i j w b e.
+--        SingI (EffectDepths j (Reader e))
+--     => Eff i j w -> e -> Eff i (RunEffect j (Reader e)) w
+runReader' m = \(e :: e) -> handleRelay @(Reader e) Val (\Reader k -> k e) m
+
+handleRelay :: forall t r i' i j w b a. (SingI (EffectDepths j t), r ~ (RunEffect j t))
+              => (a -> Eff i r w)
+              -> (forall v. t v -> (v -> Eff i r w) -> Eff i r w)
+              -> Eff i j a
+              -> Eff i r w
+handleRelay ret h m = loop m
+  where
+    {-# INLINE loop #-}
+    loop (Val x) = ret x
+    loop m@(E u q) = loopE (fromSing (sing :: Sing (EffectDepths j t))) m
+      where
+        {-# INLINE loopE #-}
+        loopE _ (Val x)         = ret x
+        loopE [] (E u q)        = error "IMPOSSIBLE!"
+        loopE (True:p) (E u q)  = h (unsafeCoerce u) (qComp q (loopE p))
+        loopE (False:p) (E u q) = E u (tsingleton (qComp q (loopE p)))
+
+t4 = [ido|do
+  (a :: Int) <- ask
+  -- (b :: Float) <- ask
+  c <- greet
+  ireturn (a + length c)
+|]
+
+--         loopE w (True:p) (E u q) =
+--             case unsafeCoerce u of
+--                 (Writer o :: Writer t ()) ->
+--                     loopE (o : w) p $ qApp (unsafeCoerce q) ()
 
 -- data Call fn x
 --   where
