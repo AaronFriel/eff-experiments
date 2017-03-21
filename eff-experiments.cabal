@@ -25,6 +25,7 @@ library
                      , Data.Iota.Unified.Eff2
                      , Data.Iota.Unified.Indexed
                      , Data.Iota.Unified.Indexed3
+                     , Data.Iota.Unified.Indexed4
                      , Data.Iota.Unified.FTCQueue1
                      , Data.Iota.Unified.OpenUnion51
                      , Data.Iota.Tagged.Eff1
@@ -46,12 +47,13 @@ library
                      , haskell-src-meta
                      , singletons
                      , type-level-sets
+                     , cxmonad
   default-language:    Haskell2010
 
 executable eff-experiments-exe
   hs-source-dirs:      app
   main-is:             Main.hs
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:         -rtsopts -with-rtsopts=-N
   build-depends:       base
                      , eff-experiments
   default-language:    Haskell2010
@@ -62,7 +64,7 @@ test-suite eff-experiments-test
   main-is:             Spec.hs
   build-depends:       base
                      , eff-experiments
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:         -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
 
 benchmark eff-experiments-benchmark
@@ -79,7 +81,7 @@ benchmark eff-experiments-benchmark
                      , eff
                      , criterion
                      , mtl
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:         -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
 
 source-repository head

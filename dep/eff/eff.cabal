@@ -27,7 +27,7 @@ library
 executable eff-exe
   hs-source-dirs:      app
   main-is:             Main.hs
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:         -rtsopts -with-rtsopts=-N
   build-depends:       base
                      , eff
   default-language:    Haskell2010
@@ -38,7 +38,7 @@ test-suite eff-test
   main-is:             Spec.hs
   build-depends:       base
                      , eff
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:         -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
 
 source-repository head

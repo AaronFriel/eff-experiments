@@ -31,8 +31,9 @@ import           Data.Proxy
 import           Data.Singletons
 import           Data.Singletons.Decide
 import           Data.Singletons.Prelude
-import           Data.Singletons.Prelude.Num
 import           Data.Singletons.Prelude.Enum
+import           Data.Singletons.Prelude.List
+import           Data.Singletons.Prelude.Num
 import           Data.Singletons.Prelude.Ord
 import           Data.Type.Equality
 import           Data.Type.Map               hiding (Map)
@@ -127,6 +128,28 @@ data FTCQueue m a b where
         Leaf :: (a -> m i j b) -> FTCQueue m a b
         Node :: FTCQueue m a x -> FTCQueue m x b -> FTCQueue m a b
 
+-- data Paren = Lp | Rp
+
+  -- Node :: IxQueue m a x -> IxQueue m x b -> IxQueue m a b
+
+-- isingleton :: (a -> m b) -> IxQueue m (a -> m b)
+-- isingleton r = IxLeaf r
+ 
+-- -- (~|>) :: IxQueue m (a -> m x) -> (x -> m b) -> IxQueue m (a -> m (x, x -> m b))
+-- t ~|> r = IxNode t (IxLeaf r)
+
+-- -- (>~<) :: IxQueue m (a -> m x) -> IxQueue m (x -> m b) -> IxQueue m (a -> m (x, x -> m b))
+-- t1 >~< t2 = IxNode t1 t2
+
+-- instance Ix
+-- iviewl :: IxQueue m (a -> m b) -> IxViewL m (a -> m b)
+-- iviewl (IxLeaf r) = IOne r
+-- iviewl (IxNode t1 t2) = go t1 t2
+--   where
+--     go :: IxQueue m (a -> m x) -> IxQueue m (x -> m b) -> IxViewL m (a -> m (x, x -> m b))
+--     go (IxLeaf r) tr = r :~ tr
+--     go (IxNode tl1 tl2) tr = go tl1 (IxNode tl2 tr)
+
 -- Exported operations
 -- There is no tempty: use (tsingleton return), which works just the same.
 -- The names are chosen for compatibility with FastTCQueue
@@ -161,11 +184,6 @@ tviewl (Node t1 t2) = go t1 t2
     go :: FTCQueue m a x -> FTCQueue m x b -> ViewL m a b
     go (Leaf r) tr       = r :| tr
     go (Node tl1 tl2) tr = go tl1 (Node tl2 tr)
-
---
-data IxQ m i k a b where
-        IxLeaf :: (a -> m i k b) -> IxQ m i k a b
-        IxNode :: IxQ m i j a x -> IxQ m j k x b -> IxQ m i k a b
 
 -- ███████ ███████ ███████
 -- ██      ██      ██
@@ -215,8 +233,8 @@ type family EffectDepths (i :: [(* -> *, Maybe Nat)]) (e :: * -> *) :: [Bool] wh
 
 type family EffectDepths' (i :: [(* -> *, Maybe Nat)]) (e :: * -> *) :: [Bool] where
     EffectDepths'            '[] _ = '[]
-    EffectDepths' ('(e, Just 1) ': r) e = True  ': EffectDepths' r e
-    EffectDepths' ('(_, Just 1) ': r) e = False ': EffectDepths' r e
+    EffectDepths' ('(e, Just 1) ': r) e = True ': EffectDepths' r e
+    EffectDepths' ('(u, Just 1) ': r) e = False ': EffectDepths' r e
     EffectDepths' ('(u, Just n) ': r) e = EffectDepths' ('(u, Just (Pred n)) ': r) e
     -- EffectDepths' ('(_, Nothing) ': r) e = False ': EffectDepths' r e 
 
@@ -338,13 +356,6 @@ handleRelay ret h m = loop m
         loopE [] (E u q)        = error "IMPOSSIBLE!"
         loopE (True:p) (E u q)  = h (unsafeCoerce u) (qComp q (loopE p))
         loopE (False:p) (E u q) = E u (tsingleton (qComp q (loopE p)))
-
-t4 = [ido|do
-  (a :: Int) <- ask
-  -- (b :: Float) <- ask
-  c <- greet
-  ireturn (a + length c)
-|]
 
 --         loopE w (True:p) (E u q) =
 --             case unsafeCoerce u of

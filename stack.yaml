@@ -3,9 +3,9 @@ packages:
   - location: ./dep/eff
     extra-dep: true
   - location: ./dep/indexed
-    extra-dep: true
-  # - location: ./indexed
-  #   extra-dep: true
+    extra-dep: false
+  - location: ./dep/cxmonad
+    extra-dep: false
 extra-deps:
   - indexed-do-notation-0.1
   - type-level-sets-0.8.0.0
