@@ -29,7 +29,7 @@ module Data.Iota.Unified.Indexed4
  where
 
 import Prelude hiding (return, (>>), (<*>), (>>=), fmap, pure)
-import Control.Monad.Cx.Rebound hiding ((<*>), (>>=))
+-- import Control.Monad.Cx.Rebound hiding ((<*>), (>>=))
 -- import           Control.Monad.Indexed hiding ((>>>=), (=<<<), iap, IxApplicative (..), IxMonad (..))
 -- import Language.Haskell.IndexedDo (ido)
 -- import           Data.Proxy
@@ -74,7 +74,7 @@ data IxQueue m a b where
 -- (><) :: FTCQueue m a x -> FTCQueue m x b -> FTCQueue m a b
 -- t1 >< t2 = Node t1 t2
 
-type Arrs a b = forall i j. IxQueue (MonadEff i j) a b
+-- type Arrs a b = forall i j. IxQueue (MonadEff j) a b
 
 data a :<*>: b = a :<*>: b
 data a :>>=: b = a :>>=: b
@@ -91,47 +91,54 @@ type family Parenthesize a where
   Parenthesize '[] = '[ 'Nil ]
   Parenthesize   a = '[ 'L ] :++ a :++ '[ 'R ]
 
-type family AddCtor' i ctor where
-  AddCtor' i ctor = i :++ '[ 'Ctor ctor]
+type family AddCtor ctor where
+  AddCtor ctor = '[ 'Ctor ctor]
 
-type family AddAp i l r where
-  AddAp i l r = i :++ '[ 'Ap ] :++ Parenthesize l :++ Parenthesize r
+type family AddAp l r where
+  AddAp l r = '[] :++ '[ 'Ap ] :++ Parenthesize l :++ Parenthesize r
 
-type family AddBind i l r where
-  AddBind i l r = i :++ '[ 'Bind ] :++ Parenthesize l :++ Parenthesize r
+type family AddBind l r where
+  AddBind l r = '[] :++ '[ 'Bind ] :++ Parenthesize l :++ Parenthesize r
 
-type family AddCtor i ctor where
-  AddCtor i ctor = i :++ '[ctor]
-
-data MonadEff (i :: [SList (* -> *)]) (j :: [SList (* -> *)]) (a :: *)
+data MonadEff (j :: [SList (* -> *)]) (a :: *)
   where
-    Pure    :: a -> MonadEff i i a
-    Eff     :: ctor a -> (a -> b) -> MonadEff i (AddCtor' i ctor) b
-    (:<*>)  :: MonadEff i j (a -> b) -> MonadEff j k a -> MonadEff i (AddAp i j k) b
-    (:>>=)  :: MonadEff i j a -> (a -> MonadEff j k b) -> MonadEff i (AddBind i j k) b
+    Pure    :: a -> MonadEff i a
+    Eff     :: ctor a -> (a -> b) -> MonadEff (AddCtor ctor) b
+    (:<*>)  :: MonadEff j (a -> b) -> MonadEff k a -> MonadEff (AddAp j k) b
+    (:>>=)  :: MonadEff j a -> (a -> MonadEff k b) -> MonadEff (AddBind j k) b
 
--- (:>>=)  :: MonadEff i i a -> (a -> MonadEff j (Reader Int ': j) b) -> MonadEff i (i :++ (Reader Int ': j)) b
+-- (:>>=)  :: MonadEff i a -> (a -> MonadEff (Reader Int ': j) b) -> MonadEff (i :++ (Reader Int ': j)) b
 
 
-instance CxPointed MonadEff where
-  ipoint = Pure
+-- instance CxPointed MonadEff
+--   ipoint = Pure
 
-instance CxFunctor MonadEff where
-  imap f (Pure x) = Pure (f x)
-  imap f (Eff u q) = Eff u (f . q)
-  imap f (x :<*> y) = (imap (f .) x :<*> y)
-  imap f (x :>>= y) = (x :>>= \a -> imap f (y a))
+-- instance CxFunctor MonadEff
+--   imap f (Pure x) = Pure (f x)
+--   imap f (Eff u q) = Eff u (f . q)
+--   imap f (x :<*> y) = (imap (f .) x :<*> y)
+--   imap f (x :>>= y) = (x :>>= \a -> imap f (y a))
 
--- instance CxApplicative MonadEff where
+pure = Pure
+return = pure
+
+fmap :: (a -> b) -> MonadEff i a -> MonadEff i b
+fmap f (Pure x) = Pure (f x)
+fmap f (Eff u q) = Eff u (f . q)
+fmap f (x :<*> y) = (fmap (f .) x :<*> y)
+fmap f (x :>>= y) = (x :>>= \a -> fmap f (y a))
+join = (>>= id)
+
+-- instance CxApplicative MonadEff
 --   -- Pure f <|*|> Pure x  = Pure $ f x
 n <*> m       = n :<*> m
 
--- instance CxMonad MonadEff where
+-- instance CxMonad MonadEff
 --   -- Pure x |>= k = k x
 m      >>= k = m :>>= k
 
--- -- b -> MonadEff j k c
--- test :: (b -> MonadEff j k c) -> MonadEff j k (b -> c)
+-- -- b -> MonadEff k c
+-- test :: (b -> MonadEff k c) -> MonadEff k (b -> c)
 -- test m = (:<*>) (Pure m) (Pure const)
 
 data Reader e v where
@@ -140,40 +147,78 @@ data Reader e v where
 data Writer o v where
     Writer :: o -> Writer o ()
 
-send :: forall ctor v i. ctor v -> MonadEff i (AddCtor' i ctor) v
+data State s v where
+    Put :: s -> State s ()
+    Get :: State s s
+
+data NamedState (k :: Symbol) s v where
+    IxPut :: s -> NamedState k s ()
+    IxGet :: NamedState k s s
+
+send :: forall ctor v. ctor v -> MonadEff (AddCtor ctor) v
 send t = Eff t id
 
-ask :: forall e i. MonadEff i (AddCtor' i (Reader e)) e
+ask :: forall e. MonadEff (AddCtor (Reader e)) e
 ask = send Reader
 
--- tell :: forall o i. MonadEff i (AddCtor' i (Writer o)) ()
+-- tell :: forall o. MonadEff (AddCtor (Writer o)) ()
 tell o = send (Writer o)
 
-seal :: MonadEff '[] j a -> MonadEff '[] j a
+put :: forall s. s -> MonadEff (AddCtor (State s)) ()
+put = send . Put
+
+get :: forall s. MonadEff (AddCtor (State s)) s
+get = send Get
+
+seal :: MonadEff j a -> MonadEff j a
 seal = id
 
 -- -- Type is inferred!
--- t1 :: MonadEff '[] '[Reader Float, Reader Int] Int
+-- t1 :: MonadEff '[Reader Float, Reader Int] Int
 t1 = do
   a <- ask @Int
   return a
 
-t2 = do
+-- if you squint
+-- it looks like:
+-- (ap 
+--   (ctor Reader Int)
+--   (ctor Reader Int ctor Reader Int)
+-- )
+-- t2 :: MonadEff '[Ap , L , Ctor (Reader Int) , R , L , Ctor (Reader Int) , Ctor (Reader Int) , R] Int
+t2 = seal $ do
   a <- t1
   a' <- t1
   return (a * a')
 
+t3 :: MonadEff
+       '[ 'Ap, 'L,
+            'Ap,
+               'L, 
+                'Ctor (Reader Int),
+              'R, 'L, 
+                'Ctor (Reader Float),
+              'R,
+            'R, 'L,
+              'Ctor (Reader Float),
+          'R]
+       Int
 t3 = do
   a <- ask @Int
   a' <- ask @Float
   a'' <- ask @Float
   return (a * round a' + round a'')
 
-runTest :: MonadEff '[] i Int -> MonadEff '[] i Int
-runTest = undefined
 
-runTest' :: MonadEff '[] i Int -> MonadEff '[] (Simplify (RunEffect' i (Reader Int))) Int
-runTest' = undefined
+simpTest :: MonadEff j Int -> MonadEff (Simplify j) Int
+simpTest = undefined
+
+runInt' :: MonadEff j Int -> MonadEff (RunEffect' j (Reader Int)) Int
+runInt' = undefined
+
+runFloat' :: MonadEff j Int -> MonadEff (RunEffect' j (Reader Float)) Int
+runFloat' = undefined
+
 
 type family Member i (ctor :: * -> *) :: Bool where
   Member '[] ctor        = TypeError ('Text "The effect " ':<>: 'ShowType ctor ':<>: 'Text " is not used.")
@@ -193,7 +238,7 @@ type family GetSecondArgument i where
 
 type family GetArguments i where
   GetArguments ('Nil : r) = GetSecondArgument '( '[ 'Nil ], r)
-  GetArguments ('L   : r) = GetSecondArgument  (GetExpr'' 1 '[ 'L ] r) 
+  GetArguments ('L   : r) = GetSecondArgument  (GetExpr'' 1 '[ 'L ] r)
 
 type family SimplifyOp' op i where
   SimplifyOp' op '( '[ 'L, 'R ], '(         snd, tail)) = SimplifyOp' op '( '[ 'Nil ], '(snd, tail) )
@@ -226,19 +271,24 @@ type family GetArgumentHead i where
   GetArgumentHead ('Nil : r) = '( '[ 'Nil ], r)
   GetArgumentHead ('L   : r) = (GetExpr'' 1 '[ 'L ] r)
 
--- runReader :: MonadEff i j a -> e -> MonadEff i (RunEffect j (Reader e)) a
+-- runReader :: MonadEff j a -> e -> MonadEff (RunEffect j (Reader e)) a
 -- runReader (Pure a) e = Pure a
 
 -- class (Member j (Reader e)) ~ 'True => RunReader i j e where
 --TODO: generalize to handleRelay like behavior
 
-class RunReader i j a e where
-  runReader :: MonadEff i j a -> e -> MonadEff i (RunEffect j (Reader e)) a
+class RunReader j a e where
+  runReader :: MonadEff j a -> e -> MonadEff (RunEffect j (Reader e)) a
 
-instance RunReader '[] '[ 'Ctor (Reader e) ] e e where
+instance RunReader '[ 'Ctor (Reader e) ] e e where
+  runReader (Pure a) _ = Pure a
   runReader (Eff _ q) e = Pure (unsafeCoerce q $ e)
 
--- instance ( '(head, tail) ~ GetArgumentHead r, 
+instance RunReader r a1 e => RunReader ( 'Ctor t : r ) a e where
+  runReader (Pure a) _ = Pure a
+  -- runReader (Eff u q) e = Eff u (flip runReader e . q)
+
+-- instance ( '(head, tail) ~ GetArgumentHead r,
 --            RunReader '[] head (a -> b) e,
 --            RunReader '[] tail a e,
 --            Simplify (RunEffect' tail (Reader e))
@@ -246,12 +296,12 @@ instance RunReader '[] '[ 'Ctor (Reader e) ] e e where
 --                         SimplifyOp' 'Bind (GetArguments (RunEffect' r (Reader e)))
 --          ) => RunReader '[] ( 'Ap : r ) b e where
 --   runReader (m :<*> k) e =
---     let m' = unsafeCoerce m :: MonadEff '[] head (a -> b)
---         k' = unsafeCoerce k :: MonadEff '[] tail a
+--     let m' = unsafeCoerce m :: MonadEff head (a -> b)
+--         k' = unsafeCoerce k :: MonadEff tail a
 --     in case (runReader m' e, runReader k' e) of
 --       (Pure f, Pure a) -> Pure (f a)
 
--- instance ( '(head, tail) ~ GetArgumentHead r, 
+-- instance ( '(head, tail) ~ GetArgumentHead r,
 --            RunReader '[] head a e,
 --            RunReader '[] tail b e,
 --            Simplify (RunEffect' tail (Reader e))
@@ -259,22 +309,22 @@ instance RunReader '[] '[ 'Ctor (Reader e) ] e e where
 --                         SimplifyOp' 'Bind (GetArguments (RunEffect' r (Reader e)))
 --          ) => RunReader '[] ( 'Bind : r ) b e where
 --   runReader (m :>>= k) e =
---     case runReader (unsafeCoerce m :: MonadEff '[] head a) e of
---       Pure a  -> flip runReader e $ (unsafeCoerce k :: a -> MonadEff '[] tail b) a
+--     case runReader (unsafeCoerce m :: MonadEff head a) e of
+--       Pure a  -> flip runReader e $ (unsafeCoerce k :: a -> MonadEff tail b) a
 --       -- Eff u q -> undefined
- 
 
- 
+
+
 -- instance RunReader '[] '[ 'Ctor (Reader e) ] e e where
 --   runReader (Eff _ q) e = Pure (unsafeCoerce q $ e)
 
 
 -- This is safe!
-run :: MonadEff '[] '[] b -> b
+run :: MonadEff '[] b -> b
 run (Pure b) = b
 
 
-infixl 7 :<*> 
+infixl 7 :<*>
 infixl 6 :>>=
 
 apPrec, bindPrec :: Int
@@ -282,17 +332,17 @@ apPrec = 7
 bindPrec = 6
 
 
-instance Show (MonadEff i j a) where
+instance Show (MonadEff j a) where
   showsPrec _ (Pure _)  = showString "Pure"
   showsPrec _ (Eff _ _) = showString "Eff"
-  showsPrec p (a :<*> b) = 
-    showParen (p > apPrec) $ 
+  showsPrec p (a :<*> b) =
+    showParen (p > apPrec) $
       showsPrec (apPrec+1) a
       . showString " :<*> "
       . showsPrec (apPrec+1) b
 
-  showsPrec p (a :>>= _) = 
-    showParen (p > bindPrec) $ 
+  showsPrec p (a :>>= _) =
+    showParen (p > bindPrec) $
       showsPrec (bindPrec+1) a
       . showString " :>>= "
       . showsPrec (bindPrec+1) "m"
@@ -313,10 +363,10 @@ instance Show (MonadEff i j a) where
 --   ireturn (round a + b)
 -- |]
 
--- run :: MonadEff '[] '[] a -> a
+-- run :: MonadEff '[] a -> a
 -- run (Pure b) = b
 -- run (Eff u q) = error "Impossible"
--- t1r x = case t1 of 
+-- t1r x = case t1 of
 --   Pure k -> k
 --   Eff u q -> case u of
 --     Reader -> undefined
@@ -334,7 +384,7 @@ instance Show (MonadEff i j a) where
 -- -- --   b :: Float <- ask
 -- -- --   ireturn $ a + round b
 -- -- -- |]
--- -- -- t3 = E (Reader @Int) (Leaf (\(Reader a) -> Val $ a + 1) |> (\a -> 
+-- -- -- t3 = E (Reader @Int) (Leaf (\(Reader a) -> Val $ a + 1) |> (\a ->
 -- -- --       E (Reader @Float) (Leaf (\(Reader b) -> Val b) |> (\b ->
 -- -- --         Val $ a + round b
 -- -- --       ))))
@@ -343,7 +393,7 @@ instance Show (MonadEff i j a) where
 -- -- t3r x = case t1 of
 -- --   Val k -> undefined
 
--- -- equivalent to `ask >>>= \(a :: Int) -> ask >>>= \(b :: Float) -> 
+-- -- equivalent to `ask >>>= \(a :: Int) -> ask >>>= \(b :: Float) ->
 
 -- -- instance QApp a ([a -> Eff1 i j b, b -> Eff2 i j c]) c where
 -- --     qApp (Node k t) x = case k x of
