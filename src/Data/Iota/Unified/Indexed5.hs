@@ -17,6 +17,9 @@
 -- For unsafeSizeof
 {-# LANGUAGE MagicHash, UnboxedTuples #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE UndecidableSuperClasses #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
 
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors -Wno-missing-signatures -Wno-redundant-constraints #-}
 
@@ -33,27 +36,30 @@ import Data.Singletons
 import Data.Singletons.Decide
 import Data.Singletons.Prelude
 import Data.Singletons.TH
--- import Data.Singletons.TypeLits
+import Data.Singletons.TypeLits
 import Data.Type.Equality
 
-import Data.Kind (type (*))
+import Data.Kind (Constraint, type (*))
 import Data.Proxy (Proxy)
+import GHC.TypeLits hiding (type (*))
 import GHC.Prim (Proxy#, proxy#)
 
-import Data.Type.Set
+import Data.Type.Set (Set (..), Union)
+
+import Data.Typeable
 
 import qualified Debug.Trace as Debug
 
-import qualified GHC.Exts as E
-import qualified Foreign as F
+-- import qualified GHC.Exts as E
+-- import qualified Foreign as F
 
-unsafeSizeof :: a -> Int
-unsafeSizeof a =
-  case E.unpackClosure# a of
-    (# x, ptrs, nptrs #) ->
-      F.sizeOf (undefined::Int) + -- one word for the header
-        E.I# (E.sizeofByteArray# (E.unsafeCoerce# ptrs)
-             E.+# E.sizeofByteArray# nptrs)
+-- unsafeSizeof :: a -> Int
+-- unsafeSizeof a =
+--   case E.unpackClosure# a of
+--     (# x, ptrs, nptrs #) ->
+--       F.sizeOf (undefined::Int) + -- one word for the header
+--         E.I# (E.sizeofByteArray# (E.unsafeCoerce# ptrs)
+--              E.+# E.sizeofByteArray# nptrs)
 
 intX :: Int
 intX = 5
@@ -61,13 +67,11 @@ intX = 5
 foobar :: String
 foobar = "foobar"
 
-data Tree a = ApNode (Tree a) (Tree a) | BindNode (Tree a) (Tree a) | Ctor a (Tree a) | Pure
-
-$(singletons [d|
-  |])
+data Tree a = ApNode (Tree a) (Tree a) | (Tree a) :>>= (Tree a) | Ctor a (Tree a) | Pure
 
 data Reader (e :: *) (v :: *) where
   Reader :: Reader e e
+  deriving (Typeable)
 
 data Writer (e :: *) (v :: *) where
   Writer :: o -> Writer o ()
@@ -76,30 +80,58 @@ newtype Exc (e :: *) (v :: *) = Exc e
 
 data Halt = Halt
 
-seal :: MonadEff '[] 'Pure a -> MonadEff '[] 'Pure a
-seal = id
+-- seal :: MonadEff '[] 'Pure a -> MonadEff '[] 'Pure a
+-- seal = id
 
 run :: MonadEff '[] 'Pure a -> a
 run (Val x) = x
 
-send :: forall v ctor. ctor v -> MonadEff '[ctor] ('Ctor ctor 'Pure) v
+send :: Member ctor r => ctor v -> MonadEff r ('Ctor ctor 'Pure) v
 send t = Eff t Val
 
-ask :: forall r. MonadEff '[Reader r] ('Ctor (Reader r) 'Pure) r
-ask = send Reader
+ask :: forall e r. Member (Reader e) r => MonadEff r ('Ctor (Reader e) 'Pure) e
+ask = send (Reader)
 
--- tell :: forall o. MonadEff ('Ctor (Writer o) 'Pure) o
-tell = send . Writer
+tell :: forall o r. Member (Writer o) r => o -> MonadEff r ('Ctor (Writer o) 'Pure) ()
+tell o = send (Writer o)
 
 -- test :: MonadEff ('Ctor (Reader String) 'Pure) String
 test = ask @Int
 
+type family BindSimple j1 j2 where
+  BindSimple 'Pure       k = k
+  BindSimple ('Ctor a j) k = 'Ctor a (BindSimple j k)
+
 -- test2 :: MonadEff ('Ctor (Reader String) ('Ctor (Writer String) 'Pure)) ()
-test2 = Eff (Reader) (\a -> Eff (Writer a) Val)
+test2 = ask @String `Bind` tell
+
+-- t2rr = (((), [foobar]) ==) $ run $ runWriter (runReader test2 foobar)
+
+type family EffectsOf j where
+  EffectsOf 'Pure       = '[]
+  EffectsOf ('Ctor t j) = t ': EffectsOf (RemoveEffect j t)
+
+type family RemoveEffect j t where
+  RemoveEffect 'Pure       t = 'Pure
+  RemoveEffect ('Ctor t j) t = RemoveEffect j t
+  RemoveEffect ('Ctor u j) t = 'Ctor u (RemoveEffect j t)
 
 type family RunSimple x ctor where
   RunSimple ('Pure)           _ = 'Pure
   RunSimple ('Ctor ctor k) ctor = k
+
+class Member (t :: * -> *) (r :: [* -> *])
+
+instance Member t (t ': r) 
+instance (Member t r) => Member t (u ': r)
+
+type family Member' t r :: Constraint where
+  Member' x (x ': r) = ()
+  Member' x (y ': r) = Member' x r
+
+type family AllMemberOf ts r :: Constraint where
+  AllMemberOf       '[] _ = ()
+  AllMemberOf (x ': ts) r = (Member' x r, AllMemberOf ts r)
 
 class RunReader j e where
   runReader :: MonadEff (Reader e ': r) j w -> e -> MonadEff r (RunSimple j (Reader e)) w
@@ -111,17 +143,26 @@ instance RunReader ('Ctor (Reader e) k) e where
 class RunWriter j o where
   runWriter :: MonadEff (Writer o ': r) j w -> MonadEff r (RunSimple j (Writer o)) (w, [o])
 
-instance RunWriter ('Ctor (Writer String) k) o where
-  runWriter (Eff u q) = case u of
-    Writer o -> Debug.trace ("Found o: " ++ o) $ case q () of
-      Val a -> Val (a, [o])
+-- instance RunWriter ('Ctor (Writer String) k) o where
+--   runWriter (Eff u q) = case u of
+--     Writer o -> case q () of
+--       Val a -> Val (a, [o])
 
 data MonadEff r j (a :: *)
   where
-    Val     :: {-# UNPACK #-} !a -> MonadEff '[] 'Pure a
-    Eff     :: {-# UNPACK #-} !(ctor a) -> {-# UNPACK #-} !(a -> MonadEff r k b) -> MonadEff (ctor ': r) (Ctor ctor k) b
+    Val     :: {-# UNPACK #-} !a -> MonadEff r 'Pure a
+    Eff     :: {-# UNPACK #-} !(ctor a) 
+            -> {-# UNPACK #-} !(a -> MonadEff r k b)
+            -> MonadEff r2 (Ctor ctor k) b
     -- (:<*>)  :: MonadEff j (a -> b) -> MonadEff k a -> MonadEff ('ApNode j k) b
-    -- (:>>=)  :: MonadEff j a -> (a -> MonadEff k b) -> MonadEff ('BindNode j k) b
+    Bind :: {-# UNPACK #-} !(MonadEff r j a)
+         -> {-# UNPACK #-} !(a -> MonadEff r k b)
+         -> MonadEff r (j :>>= k) b
+
+imap :: (a -> b) -> MonadEff r j a -> MonadEff r j b
+imap f (Val a) = Val (f a)
+imap f (Eff u q) = Eff u (imap f . q)
+imap f (m `Bind` k) = m `Bind` (imap f . k)
 
 -- data WrappedMonadEff w = forall j. SingI j => WrappedMonadEff (MonadEff j w)
 
