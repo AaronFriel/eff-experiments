@@ -26,6 +26,7 @@ library
                      , Data.Iota.Unified.Indexed
                      , Data.Iota.Unified.Indexed3
                      , Data.Iota.Unified.Indexed4
+                     , Data.Iota.Unified.Indexed5
                      , Data.Iota.Unified.FTCQueue1
                      , Data.Iota.Unified.OpenUnion51
                      , Data.Iota.Tagged.Eff1
@@ -45,17 +46,9 @@ library
                      , indexed-do-notation
                      , template-haskell
                      , haskell-src-meta
-                     , singletons
+                     , singletons == 2.2
                      , type-level-sets
                      , cxmonad
-  default-language:    Haskell2010
-
-executable eff-experiments-exe
-  hs-source-dirs:      app
-  main-is:             Main.hs
-  ghc-options:         -rtsopts -with-rtsopts=-N
-  build-depends:       base
-                     , eff-experiments
   default-language:    Haskell2010
 
 test-suite eff-experiments-test
