@@ -18,42 +18,60 @@
 {-# LANGUAGE TypeInType            #-}
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE UndecidableInstances  #-}
-{-# OPTIONS_GHC -fprint-explicit-kinds #-}
--- {-# LANGUAGE QuasiQuotes #-}
+-- {-# OPTIONS_GHC -fprint-explicit-kinds #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ExistentialQuantification #-}
+
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors -Wno-missing-signatures #-}
 
 module Data.Iota.Unified.Indexed4
  -- ( Eff )
  where
 
-import Prelude hiding (return, (>>), (<*>), (>>=), fmap, pure)
+import Prelude hiding (return, (>>), (<*>), (>>=), fmap, pure, (<$>))
 -- import Control.Monad.Cx.Rebound hiding ((<*>), (>>=))
 -- import           Control.Monad.Indexed hiding ((>>>=), (=<<<), iap, IxApplicative (..), IxMonad (..))
 -- import Language.Haskell.IndexedDo (ido)
 -- import           Data.Proxy
--- import           Data.Singletons
--- import           Data.Singletons.Decide
-import           Data.Singletons.Prelude hiding (SList)
-import           Data.Singletons.Prelude.Enum
--- import           Data.Singletons.Prelude.List
-import           Data.Singletons.Prelude.Num
+import Data.Singletons
+
+import Data.Promotion.TH
+import Data.Singletons.Decide
+import Data.Singletons.Prelude hiding (SList)
+import Data.Singletons.Prelude.Enum
+-- import Data.Singletons.Prelude.List
+import Data.Singletons.Prelude.Num
+import Data.Singletons.TH
+import Data.Singletons.TypeLits
 -- import           Data.Singletons.Prelude.Ord
--- import           Data.Type.Equality
+import           Data.Type.Equality
+
 -- import           Data.Type.Map               hiding (Map)
 -- import           Data.Type.Set               hiding ((:++))
 import qualified Debug.Trace                 as Debug
 -- import           GHC.Exts                    (inline)
--- import           GHC.Prim                    (Any, Proxy#, proxy#)
+import           GHC.Prim                    (Any, Proxy#, proxy#)
 import           GHC.TypeLits                hiding (type (*))
+import           GHC.Prim                    (coerce)
 import           Unsafe.Coerce               (unsafeCoerce)
+-- import Data.Proxy
 -- import Data.Singletons.Prelude.Num
 -- import Data.Singletons.Prelude.Enum
 -- import           Control.Applicative
 -- import           Control.Monad
 import           Data.Kind
 -- import           Data.Singletons.TypeLits
+
+-- infixl 4 <$, <$>
+
+-- infixl 4 <*>
+-- infixl 1 >>, >>=
+-- infixr 1 =<|, =<<
 
 data FTCQueue m a b where
         Leaf :: (a -> m b) -> FTCQueue m a b
@@ -76,76 +94,263 @@ data IxQueue m a b where
 
 -- type Arrs a b = forall i j. IxQueue (MonadEff j) a b
 
-data a :<*>: b = a :<*>: b
-data a :>>=: b = a :>>=: b
+type family BindOp a b where
+  BindOp a b = BindNode a b
 
-data SList a where
-   Nil :: SList a
-   L :: SList a
-   R :: SList a
-   Ctor :: a -> SList a
-   Ap   :: SList a
-   Bind :: SList a
-
-type family Parenthesize a where
-  Parenthesize '[] = '[ 'Nil ]
-  Parenthesize   a = '[ 'L ] :++ a :++ '[ 'R ]
+data Tree a = ApNode (Tree a) (Tree a) | BindNode (Tree a) (Tree a) | Ctor a | Pure
 
 type family AddCtor ctor where
-  AddCtor ctor = '[ 'Ctor ctor]
+  AddCtor ctor = Ctor ctor
 
 type family AddAp l r where
-  AddAp l r = '[] :++ '[ 'Ap ] :++ Parenthesize l :++ Parenthesize r
+  AddAp l r = ApNode l r
 
-type family AddBind l r where
-  AddBind l r = '[] :++ '[ 'Bind ] :++ Parenthesize l :++ Parenthesize r
+type family AddBind l r = result | result -> l r where
+  AddBind l r = BindNode l r
 
-data MonadEff (j :: [SList (* -> *)]) (a :: *)
+
+-- data MonadView e j a 
+--   where
+--     V     :: a -> MonadView e 'Pure a
+--     E     :: e a -> (a -> b) -> MonadView e ('Ctor '(ctor, a)) b
+--     O     :: ctor a -> (a -> b) -> MonadView e ('Ctor '(ctor, a)) b
+--     A     :: MonadView e j (a -> b) -> MonadView e k a -> MonadView e ('ApNode j k) b
+--     B     :: MonadView e j a -> (a -> MonadView e k b) -> MonadView e ('BindNode j k) b
+
+class IfCxt (cxt :: Constraint) where
+    ifCxt :: proxy cxt -> (cxt => a) -> b -> Either b a
+
+
+instance {-# OVERLAPPABLE #-} IfCxt cxt where ifCxt _ t f = Left f
+
+class IsCorrect (ctor :: * -> *) (v :: * -> *)
+
+-- instance (ctor ~ v) => IsCorrect (ctor :: * -> *) (v :: * -> *)
+
+-- instance {-# OVERLAPS #-} IfCxt (IsCorrect v v) where ifCxt _ t f = t
+
+-- instance {-# OVERLAPS #-} IfCxt ((~) a a) where ifCxt _ t f = t
+-- instance {-# OVERLAPS #-} IfCxt (Show a) where ifCxt _ t f = t
+
+-- class ToView (e :: * -> *) j where
+--   toView :: MonadEff j w -> MonadView e j w
+
+-- instance ToView e 'Pure where
+--   toView (Val a) = V a
+
+-- instance {-# OVERLAPPABLE #-} ToView e ('Ctor '(ctor, a)) where
+--   toView (Eff u q) = O u q
+
+-- instance {-# OVERLAPPING #-} ToView e ('Ctor '(e, a)) where
+--   toView (Eff u q) = E u q
+
+-- instance (ToView e l, ToView e r) => ToView e ('ApNode l r) where
+--   toView (l :<*> r) = A (toView l) (toView r)
+
+-- instance (ToView e l, ToView e r) => ToView e ('BindNode l r) where
+--   toView (l :>>= r) = B (toView l) (\a -> toView (r a))
+
+
+-- class Decomp ctor e where
+--   decomp :: MonadEff ('Ctor '(ctor, a)) b
+--          -> (e a -> (a -> b) -> b)
+--          -> b
+
+-- instance {-# OVERLAPPING #-} Decomp e e where
+--   decomp m h = ctorApp m h
+
+-- class CanApply j e a
+
+-- instance CanApply ('Ctor '(e, a)) e a 
+
+-- instance {-# OVERLAPS #-} IfCxt (CanApply ('Ctor '(e, a)) e a) where ifCxt _ t f = Right t
+
+-- class IfCxt' (cxt :: Bool -> Constraint) where
+--     ifCxt' :: proxy cxt -> (cxt True => a) -> (cxt False => b) -> Either b a
+
+
+-- ctorApp :: forall a b e. MonadEff (Ctor '(e, a)) b -> (e a -> (a -> b) -> b) -> b
+-- ctorApp (Eff u q) h = h u q
+
+-- type family RunSimple (j :: EffTree) (e :: * -> *) where
+--   RunSimple 'Pure _ = 'Pure
+--   RunSimple ('Ctor '(e, a)) e = 'Pure
+--   RunSimple ('Ctor '(e', a)) e = ('Ctor '(e', a))
+
+foo :: Int
+foo = 5
+
+-- run' :: Run j w
+-- run' 
+
+
+run :: MonadEff Pure w -> w
+run (Val a) = a
+
+-- runReader :: forall j w (e :: *). MonadEff j w -> e -> Run j w
+-- runReader (Val a) e = \r -> Run (Val a) r
+-- runReader m@(Eff u q) e = 
+--     case ifCxt (Proxy :: Proxy (MonadEff j w ~ MonadEff ('Ctor '(Reader e, e)) w)) ( (\(Eff u q) -> Val $ q e) m) m of
+--       Left w -> Run $ w
+--       Left m -> error "Foobar!"
+    -- case ifCxt (Proxy :: Proxy (MonadEff j w ~ MonadEff ('Ctor '(Reader e, e)) w)) ((\(Eff u q) -> Val $ q e) m) m of
+    --   Right w -> w
+    --   Left m -> error "Foobar!"
+
+
+-- testFn :: forall j w (e :: *). MonadEff j w -> e -> MonadEff (RunSimple j (Reader e)) w
+-- testFn m e =
+--   case ifCxt (Proxy :: Proxy (MonadEff j w ~ MonadEff 'Pure w)) ((\(Val a) -> Val a) m) m of
+--     Right w -> w
+--     Left m -> case ifCxt (Proxy :: Proxy (MonadEff j w ~ MonadEff ('Ctor '(Reader e, e)) w)) ((\(Eff u q) -> Val $ q e) m) m of
+--       Right w -> w
+--       Left m -> undefined
+
+-- instance ToView e 'Pure a where
+--   toView (Val a) = V a
+
+-- instance ToView e 'Pure a where
+--   toView (Val a) = V a
+
+
+type EffTree = Tree (* -> *, *)
+
+data MonadEff j (a :: *)
   where
-    Pure    :: a -> MonadEff i a
-    Eff     :: ctor a -> (a -> b) -> MonadEff (AddCtor ctor) b
-    (:<*>)  :: MonadEff j (a -> b) -> MonadEff k a -> MonadEff (AddAp j k) b
-    (:>>=)  :: MonadEff j a -> (a -> MonadEff k b) -> MonadEff (AddBind j k) b
+    Val     :: a -> MonadEff 'Pure a
+    Eff     :: ctor a -> (a -> b) -> MonadEff ('Ctor '(ctor, a)) b
+    (:<*>)  :: MonadEff j (a -> b) -> MonadEff k a -> MonadEff ('ApNode j k) b
+    (:>>=)  :: MonadEff j a -> (a -> MonadEff k b) -> MonadEff ('BindNode j k) b
 
+
+imap :: (a -> b) -> MonadEff j a -> MonadEff j b
+imap f (Val a) = (Val (f a))
+imap f (Eff u q) = Eff u (f . q)
+imap f (m :<*> k) = (imap (f .) m :<*> k)
+imap f (m :>>= k) = (m :>>= \a -> imap f (k a))
+
+-- runEffect :: forall j w (ctor :: * -> *) a. MonadEff j w -> (ctor a -> (a -> w) -> MonadEff Pure w) -> MonadEff (RunEffect j ctor a) w
+-- runEffect (Val a) _ = Val a
+-- runEffect m@(Eff u q) h = case m of
+--   (m :: MonadEff ('Ctor '(e', a')) w) -> case decomp m u of
+--     Left _ -> undefined
+
+-- runEffect m@(Eff u q) h = case decomp (Eff u q) h of
+--   Left _ -> undefined
+--   Right _ -> undefined
+
+-- type family EqTree (a :: EffTree) (b :: EffTree) where
+--   EqTree             'Pure               'Pure = 'True
+--   EqTree ('Ctor '(e, a))   ('Ctor '(e, a)) = 'True
+--   EqTree   ('ApNode l1 r1)     ('ApNode l2 r2) = (EqTree l1 l2) :&& (EqTree l2 r2)
+--   EqTree ('BindNode l1 r1)   ('BindNode l2 r2) = (EqTree l1 l2) :&& (EqTree l2 r2)
+--   EqTree                 _                   _ = 'False
+
+-- type instance (a :: EffTree) == (b :: EffTree) = EqTree a b
+
+
+
+-- instance {-# OVERLAPPABLE #-} Decomp 'Pure e a where
+--   decomp m _ = Left m
+
+-- instance {-# OVERLAPPABLE #-} Decomp j e a where
+--   decomp m _ = Left m
+
+-- instance {-# OVERLAPPING #-} (j == (Ctor '(e, a))) ~ True => Decomp (Ctor '(e, a)) e a where
+--   decomp m h = Right $ ctorApp m h
+
+-- ctorApp :: MonadEff (Ctor '(e, a)) b -> (e a -> (a -> b) -> MonadEff 'Pure b) -> MonadEff 'Pure b
+-- ctorApp (Eff u q) h = h u q
+
+-- -- testCtor :: (j ~ ('Ctor '(e', a')), t ~ (j == (Ctor '(e', a')))) => MonadEff j b -> (e a -> (a -> b) -> MonadEff 'Pure b) -> MonadEff (RunEffect j e a) b
+-- -- testCtor m h = case decomp m h of
+-- --   Left _ -> undefined
+
+-- type TDecomp (j :: EffTree) (e :: * -> *) a = TDecomp' (j == (Ctor '(e, a))) j e a
+
+-- type family TDecomp' test (j :: EffTree) (e :: * -> *) (a :: *) where
+--   TDecomp' True j e a = 'Pure
+--   TDecomp' False 'Pure e a = 'Pure
+--   TDecomp' False j e a = j
+
+-- type family RunEffect j e a where
+--   RunEffect               'Pure _ a = 'Pure
+--   RunEffect (Ctor '(e' a', a')) e a = TDecomp (Ctor '(e' a', a')) e a
+
+-- type family EqCtor (a :: * -> *) (b :: * -> *) where
+--   EqCtor (t v) (t v) = 'True
+--   EqCtor     _     _ = 'False
+
+
+-- type family RunEffect j eff where
+--   RunEffect     ('Ctor '(t, t a)) eff = RunEffect' (EqCtor t eff) ('Ctor '(t, t a)) eff
+--   RunEffect                     q eff = RunEffect' True q eff
+
+
+-- runReader :: forall j w e. MonadEff j w -> e -> MonadEff (RunEffect j (Reader e)) w
+-- runReader (Val a) _ = Val a
+-- runReader m@(Eff u q) e = case m of
+--   (Eff u q :: MonadEff ('Ctor '(t, t v)) w) -> 
+--     case (sing :: Sing (EqCtor (Reader e) t)) %~ (sing :: Sing True) of
+--       _ -> applyEffect m (\Reader -> e)
+
+-- class ApplyEffect j e v w where
+--   applyEffect :: MonadEff j w -> (e v -> v) -> MonadEff (RunEffect j e) w
+
+-- instance ApplyEffect Pure e v w where
+--   applyEffect m _ = m
+
+-- instance {-# OVERLAPPABLE #-} (EqCtor ctor e ~ False) => ApplyEffect (Ctor '(ctor, ctor a)) e v w where
+--   applyEffect m _ = m
+
+-- instance {-# OVERLAPS #-} (ctor ~ e, EqCtor ctor e ~ True) => ApplyEffect (Ctor '(e, e a)) e a a where
+--   applyEffect m@(Eff u q) f = Val $ q (f u)
+
+
+-- runReader :: MonadEff j w -> e -> MonadEff (RunEffect j (Reader e)) w
+-- runReader (Val a) e = Val a
+-- runReader m@(Eff u q) e = case m of
+--   %==
+--   (Eff u q :: MonadEff ('Ctor '(ctor, ctor a)) w) -> 
+
+
+-- imap f (Val x) = Val (f x)
 -- (:>>=)  :: MonadEff i a -> (a -> MonadEff (Reader Int ': j) b) -> MonadEff (i :++ (Reader Int ': j)) b
 
 
 -- instance CxPointed MonadEff
---   ipoint = Pure
+--   ipoint = Val
 
 -- instance CxFunctor MonadEff
---   imap f (Pure x) = Pure (f x)
+--   imap f (Val x) = Val (f x)
 --   imap f (Eff u q) = Eff u (f . q)
 --   imap f (x :<*> y) = (imap (f .) x :<*> y)
 --   imap f (x :>>= y) = (x :>>= \a -> imap f (y a))
 
-pure = Pure
+pure = Val
 return = pure
 
-fmap :: (a -> b) -> MonadEff i a -> MonadEff i b
-fmap f (Pure x) = Pure (f x)
-fmap f (Eff u q) = Eff u (f . q)
-fmap f (x :<*> y) = (fmap (f .) x :<*> y)
-fmap f (x :>>= y) = (x :>>= \a -> fmap f (y a))
-join = (>>= id)
+-- fmap :: (a -> b) -> MonadEff i a -> MonadEff i b
+-- fmap f (Val x) = unsafeCoerce $ Val (f x)
+-- fmap f (Eff u q) = Eff u (f . q)
+-- fmap f (x :<*> y) = (fmap (f .) x :<*> y)
+-- fmap f (x :>>= y) = (x :>>= \a -> fmap f (y a))
+-- join = (>>= id)
 
 -- instance CxApplicative MonadEff
---   -- Pure f <|*|> Pure x  = Pure $ f x
-n <*> m       = n :<*> m
+--   -- Val f <|*|> Val x  = Val $ f x
+-- n <*> m       = n :<*> m
 
 -- instance CxMonad MonadEff
---   -- Pure x |>= k = k x
-m      >>= k = m :>>= k
+--   -- Val x |>= k = k x
+-- m      >>= k = m :>>= k
+-- m >> k = m >>= \_ -> k 
+-- (<$) = fmap . const
 
 -- -- b -> MonadEff k c
 -- test :: (b -> MonadEff k c) -> MonadEff k (b -> c)
--- test m = (:<*>) (Pure m) (Pure const)
+-- test m = (:<*>) (Val m) (Val const)
 
-data Reader e v where
-    Reader :: Reader e e
-
-data Writer o v where
-    Writer :: o -> Writer o ()
 
 data State s v where
     Put :: s -> State s ()
@@ -155,29 +360,29 @@ data NamedState (k :: Symbol) s v where
     IxPut :: s -> NamedState k s ()
     IxGet :: NamedState k s s
 
-send :: forall ctor v. ctor v -> MonadEff (AddCtor ctor) v
+send :: forall ctor v. ctor v -> MonadEff ('Ctor '(ctor, v)) v
 send t = Eff t id
 
-ask :: forall e. MonadEff (AddCtor (Reader e)) e
+ask :: forall e. MonadEff ('Ctor '(Reader e, e)) e
 ask = send Reader
 
--- tell :: forall o. MonadEff (AddCtor (Writer o)) ()
-tell o = send (Writer o)
+-- -- tell :: forall o. MonadEff (AddCtor (Writer o)) ()
+-- tell o = send (Writer o)
 
-put :: forall s. s -> MonadEff (AddCtor (State s)) ()
-put = send . Put
+-- put :: forall s. s -> MonadEff (AddCtor (State s ())) ()
+-- put = send . Put
 
-get :: forall s. MonadEff (AddCtor (State s)) s
-get = send Get
+-- get :: forall s. MonadEff (AddCtor (State s s)) s
+-- get = send Get
 
-seal :: MonadEff j a -> MonadEff j a
-seal = id
+-- seal :: MonadEff j a -> MonadEff j a
+-- seal = id
 
 -- -- Type is inferred!
 -- t1 :: MonadEff '[Reader Float, Reader Int] Int
-t1 = do
-  a <- ask @Int
-  return a
+-- t1 = do
+--   a <- ask @Int
+--   return a
 
 -- if you squint
 -- it looks like:
@@ -185,108 +390,104 @@ t1 = do
 --   (ctor Reader Int)
 --   (ctor Reader Int ctor Reader Int)
 -- )
--- t2 :: MonadEff '[Ap , L , Ctor (Reader Int) , R , L , Ctor (Reader Int) , Ctor (Reader Int) , R] Int
-t2 = seal $ do
-  a <- t1
-  a' <- t1
-  return (a * a')
+-- t2 :: MonadEff '[Ap , L , Ctor (Reader Int) , R , L , Ctor (Reader Int), R] Int
+-- t2 = seal $ do
+--   a <- t1
+--   a' <- t1
+--   return (a * a')
 
-t3 :: MonadEff
-       '[ 'Ap, 'L,
-            'Ap,
-               'L, 
-                'Ctor (Reader Int),
-              'R, 'L, 
-                'Ctor (Reader Float),
-              'R,
-            'R, 'L,
-              'Ctor (Reader Float),
-          'R]
-       Int
-t3 = do
-  a <- ask @Int
-  a' <- ask @Float
-  a'' <- ask @Float
-  return (a * round a' + round a'')
+-- (<$>) = fmap
+
+-- OUT WITH THE OLD
+
+-- t3do, t3applicative :: MonadEff
+--        '[ 'Ap, 'L,
+--             'Ap,
+--                'L, 
+--                 'Ctor (Reader Int),
+--               'R, 'L, 
+--                 'Ctor (Reader Float),
+--               'R,
+--             'R, 'L,
+--               'Ctor (Reader Float),
+--           'R]
+--        Int
+
+-- IN WITH THE NEW
+-- t3do :: MonadEff
+--        ('ApNode
+--           ('ApNode ('Ctor (Reader Int)) ('Ctor (Reader Float)))
+--           ('Ctor (Reader Float)))
+--        Int
+-- t3do = do
+--   a <- ask @Int
+--   a' <- ask @Float
+--   a'' <- ask @Float
+--   return (a * round a' + round a'')
+
+-- t3applicative = (\a a' a'' -> a * round a' * round a'') <$> ask @Int <*> ask @Float <*> ask @Float
+
+-- Dummy functions to use with GHCi to see how simplification type operator runs.
+-- simpTest :: MonadEff j Int -> MonadEff (Simplify j) Int
+-- simpTest = undefined
+
+-- runInt' :: MonadEff j Int -> MonadEff (RunEffect j (Reader Int)) Int
+-- runInt' = undefined
+
+-- runFloat' :: MonadEff j Int -> MonadEff (RunEffect j (Reader Float)) Int
+-- runFloat' = undefined
 
 
-simpTest :: MonadEff j Int -> MonadEff (Simplify j) Int
-simpTest = undefined
+-- type family Member i (ctor :: * -> *) :: Bool where
+--   Member '[] ctor        = TypeError ('Text "The effect " ':<>: 'ShowType ctor ':<>: 'Text " is not used.")
+--   Member ('Ctor t : r) t = 'True
+--   Member ('Ctor u : r) t = Member r t
 
-runInt' :: MonadEff j Int -> MonadEff (RunEffect' j (Reader Int)) Int
-runInt' = undefined
+-- type family Reduce a where
+--   Reduce ( 'ApNode Empty Empty   ) = Empty
+--   Reduce ( 'BindNode Empty Empty ) = Empty
+--   Reduce a = a
 
-runFloat' :: MonadEff j Int -> MonadEff (RunEffect' j (Reader Float)) Int
-runFloat' = undefined
+-- type family Simplify a where
+--   Simplify ('ApNode   l r) = Reduce ( 'ApNode (Reduce l) (Reduce r) )
+--   Simplify ('BindNode l r) = Reduce ( 'BindNode (Reduce l) (Reduce r) )
+--   Simplify a = a
 
+-- type family RunEffect i ctor where
+--   RunEffect ('ApNode   l r) ctor = Reduce ( 'ApNode   (RunEffect l ctor) (RunEffect r ctor) )
+--   RunEffect ('BindNode l r) ctor = Reduce ( 'BindNode (RunEffect l ctor) (RunEffect r ctor) )
+--   RunEffect ('Ctor ctor _ ) ctor = Empty
+--   RunEffect               a    _ = a
 
-type family Member i (ctor :: * -> *) :: Bool where
-  Member '[] ctor        = TypeError ('Text "The effect " ':<>: 'ShowType ctor ':<>: 'Text " is not used.")
-  Member ('Ctor t : r) t = 'True
-  Member ('Ctor u : r) t = Member r t
-
-type family GetExpr'' (n :: Nat) h i where
-  GetExpr'' 0 h r = '(h, r)
-  GetExpr'' n h ('L : r) = GetExpr'' (n+1) (h :++ '[ 'L ]) r
-  GetExpr'' n h ('R : r) = GetExpr'' (n-1) (h :++ '[ 'R ]) r
-  GetExpr'' n h ( a : r) = GetExpr'' n     (h :++ '[  a ]) r
-  GetExpr'' n h      '[] = TypeError ('Text "Invalid SList.")
-
-type family GetSecondArgument i where
-  GetSecondArgument '(fst, 'Nil : r) = '(fst, '( '[ 'Nil ], r ) )
-  GetSecondArgument '(fst,   'L : r) = '(fst, GetExpr'' 1 '[ L ] r)
-
-type family GetArguments i where
-  GetArguments ('Nil : r) = GetSecondArgument '( '[ 'Nil ], r)
-  GetArguments ('L   : r) = GetSecondArgument  (GetExpr'' 1 '[ 'L ] r)
-
-type family SimplifyOp' op i where
-  SimplifyOp' op '( '[ 'L, 'R ], '(         snd, tail)) = SimplifyOp' op '( '[ 'Nil ], '(snd, tail) )
-  SimplifyOp' op '(         fst, '( '[ 'L, 'R ], tail)) = SimplifyOp' op '( fst, '( '[ 'Nil ], tail) )
-  SimplifyOp' op '(   '[ 'Nil ], '(   '[ 'Nil ], tail)) = Simplify tail
-  SimplifyOp' op '(         fst, '         (snd, tail)) = op : Simplify fst :++ Simplify snd :++ Simplify tail
-
-type family SimplifyOp op i where
-  SimplifyOp op i = SimplifyOp' op (GetArguments i)
-
-type family Simplify a where
-  Simplify          '[]  = '[]
-  Simplify (  'Ap  : r)  = SimplifyOp 'Ap r
-  Simplify ('Bind  : r)  = SimplifyOp 'Bind r
-  Simplify (  'Nil : r ) = Simplify r
-  Simplify (    a : r )   = a : Simplify r
-
-type family RunEffect' i (ctor :: * -> *) where
-  RunEffect' '[]            ctor = '[]
-  RunEffect' ('Ctor t : r )    t = RunEffect' r t
-  RunEffect' (      a : r )    t = a : RunEffect' r t
-
-type family RunEffect i (ctor :: * -> *) where
-  RunEffect i ctor = Simplify (RunEffect' i ctor)
-
-type family GetArgumentTypes' i where
-  GetArgumentTypes' '(fst, '(snd, _)) = '(fst, snd)
-
-type family GetArgumentHead i where
-  GetArgumentHead ('Nil : r) = '( '[ 'Nil ], r)
-  GetArgumentHead ('L   : r) = (GetExpr'' 1 '[ 'L ] r)
 
 -- runReader :: MonadEff j a -> e -> MonadEff (RunEffect j (Reader e)) a
--- runReader (Pure a) e = Pure a
+-- runReader (Val a) e = Val a
 
 -- class (Member j (Reader e)) ~ 'True => RunReader i j e where
 --TODO: generalize to handleRelay like behavior
 
-class RunReader j a e where
-  runReader :: MonadEff j a -> e -> MonadEff (RunEffect j (Reader e)) a
+type family GetLhsRhs i where
+  GetLhsRhs ('BindNode l r) = '(l, r)
+  GetLhsRhs ('ApNode   l r) = '(l, r)
 
-instance RunReader '[ 'Ctor (Reader e) ] e e where
-  runReader (Pure a) _ = Pure a
-  runReader (Eff _ q) e = Pure (unsafeCoerce q $ e)
+-- class RunReader j a e where
+--   runReader :: MonadEff j a -> e -> MonadEff (RunEffect j (Reader e)) a
 
-instance RunReader r a1 e => RunReader ( 'Ctor t : r ) a e where
-  runReader (Pure a) _ = Pure a
-  -- runReader (Eff u q) e = Eff u (flip runReader e . q)
+-- instance RunReader (Empty) e e where
+--   runReader (Val a) _ = Val a
+
+-- instance RunReader (Ctor (Reader e) v) v e where
+--   runReader (Eff u q) e = case testEquality q id of
+--     Just refl -> undefined
+--     _ -> undefined
+--     -- Val (q $ e)
+
+-- instance (RunReader l (a -> b) e, RunReader r a e) => RunReader (ApNode l r) b e where
+--   runReader (l :<*> r) e = 
+--     let l' = unsafeCoerce l :: MonadEff l (a -> b)
+--         r' = unsafeCoerce r :: MonadEff r a
+--     in case (runReader l' e, runReader r' e) of
+--       (Val f, Val a) -> Val (f a)
 
 -- instance ( '(head, tail) ~ GetArgumentHead r,
 --            RunReader '[] head (a -> b) e,
@@ -299,7 +500,7 @@ instance RunReader r a1 e => RunReader ( 'Ctor t : r ) a e where
 --     let m' = unsafeCoerce m :: MonadEff head (a -> b)
 --         k' = unsafeCoerce k :: MonadEff tail a
 --     in case (runReader m' e, runReader k' e) of
---       (Pure f, Pure a) -> Pure (f a)
+--       (Val f, Val a) -> Val (f a)
 
 -- instance ( '(head, tail) ~ GetArgumentHead r,
 --            RunReader '[] head a e,
@@ -310,50 +511,51 @@ instance RunReader r a1 e => RunReader ( 'Ctor t : r ) a e where
 --          ) => RunReader '[] ( 'Bind : r ) b e where
 --   runReader (m :>>= k) e =
 --     case runReader (unsafeCoerce m :: MonadEff head a) e of
---       Pure a  -> flip runReader e $ (unsafeCoerce k :: a -> MonadEff tail b) a
+--       Val a  -> flip runReader e $ (unsafeCoerce k :: a -> MonadEff tail b) a
 --       -- Eff u q -> undefined
 
 
 
 -- instance RunReader '[] '[ 'Ctor (Reader e) ] e e where
---   runReader (Eff _ q) e = Pure (unsafeCoerce q $ e)
+--   runReader (Eff _ q) e = Val (unsafeCoerce q $ e)
 
 
--- This is safe!
-run :: MonadEff '[] b -> b
-run (Pure b) = b
+-- run :: MonadEff (Empty) b -> b
+-- run (Val b) = b
+-- -- This is safe!
+-- run _ = undefined
 
 
-infixl 7 :<*>
-infixl 6 :>>=
+-- infixl 7 :<*>
+-- infixl 6 :>>=
 
 apPrec, bindPrec :: Int
 apPrec = 7
 bindPrec = 6
 
 
-instance Show (MonadEff j a) where
-  showsPrec _ (Pure _)  = showString "Pure"
-  showsPrec _ (Eff _ _) = showString "Eff"
-  showsPrec p (a :<*> b) =
-    showParen (p > apPrec) $
-      showsPrec (apPrec+1) a
-      . showString " :<*> "
-      . showsPrec (apPrec+1) b
+-- instance Show (MonadEff j a) where
+--   showsPrec _ (Val _)  = showString "Val"
+--   showsPrec _ (Eff _ _) = showString "Eff"
+--   showsPrec p (a :<*> b) =
+--     showParen (p > apPrec) $
+--       showsPrec (apPrec+1) a
+--       . showString " :<*> "
+--       . showsPrec (apPrec+1) b
 
-  showsPrec p (a :>>= _) =
-    showParen (p > bindPrec) $
-      showsPrec (bindPrec+1) a
-      . showString " :>>= "
-      . showsPrec (bindPrec+1) "m"
+--   showsPrec p (a :>>= _) =
+--     showParen (p > bindPrec) $
+--       showsPrec (bindPrec+1) a
+--       . showString " :>>= "
+--       . showsPrec (bindPrec+1) "m"
 
-  show t = showsPrec 0 t ""
+--   show t = showsPrec 0 t ""
 
 
--- runReader (Pure m :>>= k) e = (unsafeCoerce m)
--- runReader (Pure x) e = Pure x
+-- runReader (Val m :>>= k) e = (unsafeCoerce m)
+-- runReader (Val x) e = Val x
   -- where
-  --   loop (Pure x) = Pure x
+  --   loop (Val x) = Val x
   --   loop (Eff u q) = loop $ (unsafeCoerce q) e
     -- loop (a :<*> b) = undefined
     -- loop (a :>>= b) = undefined
@@ -364,10 +566,10 @@ instance Show (MonadEff j a) where
 -- |]
 
 -- run :: MonadEff '[] a -> a
--- run (Pure b) = b
+-- run (Val b) = b
 -- run (Eff u q) = error "Impossible"
 -- t1r x = case t1 of
---   Pure k -> k
+--   Val k -> k
 --   Eff u q -> case u of
 --     Reader -> undefined
 
@@ -426,3 +628,120 @@ instance Show (MonadEff j a) where
 
 -- -- qComp :: Arrs r a b -> (Eff b -> Eff r' c) -> Arr r' a c
 -- -- qComp g h = h . qApp g
+
+
+$(genPromotions [''Tree, ''Reader])
+
+$(promoteOnly [d|
+
+  |])
+
+-- haltVal :: a -> Either Halt a
+-- haltVal            a = Right a
+
+-- haltCtor :: (Halt -> 
+-- haltCtor _ Halt    _ = Left Halt
+-- haltAp   _ Halt    _ = Left Halt
+-- haltAp   _ _    Halt = Left Halt
+-- haltBind _ Halt    _ = Left Halt
+
+$(promote [d|
+
+  data Writer (o :: *) (v :: *) where
+    Writer :: o -> Writer o ()
+
+  |])
+
+$(promote [d|
+  newtype Exc (e :: *) (v :: *) = Exc e
+
+  data Halt = Halt
+
+  data ETree a b c o = Opaque o | Ap (ETree a b c o) (ETree a b c o) | Bi (ETree a b c o) c | Pu b | Ct a 
+
+
+  -- -- runError :: ETree (Exc Halt -> a) b ->
+  -- runError Opaque = Opaque
+  -- runError (Pu a) = Pu (Right a)
+  -- runError (Ct _) = Pu (Left Halt)
+  -- runError (Ap (Ct _)      r) = Pu (Left Halt) 
+  -- runError (Ap      l (Ct _)) = Pu (Left Halt)
+  -- runError (Ap      l      r) = Ap (runError l) (runError r)
+  -- runError (Bi (Ct _)      r) = Pu (Left Halt) 
+  -- runError (Bi      l (Ct _)) = Pu (Left Halt)
+  -- runError (Bi      l      r) = Ap (runError l) (runError r)
+
+  -- runReader' :: t -> ETree (t -> b) b -> ETree a b
+  runReader' e (Opaque t) = t id
+  runReader' e (Pu a)     = a id
+  runReader' e (Ct f)     = Pu (f e)
+  runReader' e (Ap l r) = Ap (runReader' e l) (runReader' e r)
+  runReader' e (Bi l f) = Bi (runReader' e l) (f e)
+
+  addWrite o a = (a, [o])
+  -- mergeWrite (a, [o]) (a', [o']) = mergeWrite 
+
+  -- runWriter' :: ETree k a -> ETree a (a, [t])
+  runWriter' o (Opaque t) = t (addWrite o)
+  runWriter' o (Pu a) = a (addWrite o)
+  runWriter' o (Ct (k, f)) = Pu (f (), k:o)
+  -- runWriter' o (Ap l r) = l
+  -- runWriter' o (Bi l f) = f (runWriter' o l)
+
+  -- runWriter' o (Ap l r) = Ap (runWriter' o l) (runWriter' o r)
+  -- runWriter' o (Bi l r) = Ap (runWriter' e l) (runWriter' e r)
+
+  |])
+
+$(promote [d|
+
+  -- recoverTree Opaque   t = t recoverTree Opaque
+  -- recoverTree (Pu _)   = Pure
+  -- recoverTree (Ct r)   = Ctor r
+  -- recoverTree (Ap l r) = ApNode l r
+    -- case h of
+    --   Opaque -> t
+    --   Pu _ -> Pure
+    --   Ct r -> Ctor r
+    --   Ap l r -> ApNode (recoverTree h l) (recoverTree h r)
+    --   Bi l r -> BindNode (recoverTree h l) (recoverTree h r)
+
+  -- convertTree :: forall (e :: * -> *) j a b. e -> Tree j -> a -> b -> ETree b a
+  convertTree h e Pure a b o = Pu a
+  -- convertTree e (Ctor (ctor, _)) a b o =
+  --   case ctor == e of
+  --     True -> Ct (e b)
+  --     False -> (Opaque o)
+  -- convertTree e (ApNode l r) a b = Ap (convertTree e l a b) (convertTree e r a b) 
+  -- convertTree e (BindNode l r) a b = Bi (convertTree e l a b) (convertTree e r a b) 
+  |])
+
+
+runTest :: MonadEff j w 
+runTest m = _ m (convertTree runReader')
+  -- where
+  --   go :: MonadEff j w -> ConvertTree (Reader e) j a b c -> MonadEff 
+  --   go (Val x) h = convertTree 
+
+data A = A
+data B = B
+
+-- testTree :: forall (e :: * -> *) j w a b c. MonadEff j w -> Demote (ConvertTree  
+-- testTree m = case m of
+--   Val x -> Pu A
+  -- Eff u q -> Ct B
+  -- (:<*>) l r -> Ap (testTree l) (testTree r)
+  -- (:>>=) l r -> Bi (testTree l) (error "Foo")
+
+-- convertTree :: MonadEff j w -> (ETree (t -> w) w -> ETree a w) -> ETree a w
+-- convertTree (Val x) h = h (Pu x) 
+-- convertTree (Eff u q) h = h (Pu x) 
+-- convertTree (Val x) = runReader' (Pu x)
+-- convertTree (Val x) = 
+
+-- runEffect :: (a -> MonadEff r w) -> (ETree (e -> w) w -> ETree e' w) -> MonadEff 
+-- runEffect ret h m = loop m
+--   where
+--     loop (Val x) = ret x
+
+
