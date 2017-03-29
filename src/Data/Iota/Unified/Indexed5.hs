@@ -169,34 +169,30 @@ runTrace :: MonadEff ('Universe m r) (Ctor Trace) a -> a
 runTrace (Eff u q) = case u of
   Trace t -> Debug.trace t $ q ()
 
-type TestMap = '[ '(1, Ctor Trace :>>= 1), '(2, Pure :>>= 1) ]
+-- This is the control flow graph, with nodes indexed by type-level natural numbers.
+-- This graph forms a cycle with one node.
+type TestMap = '[ '(1, Ctor Trace :>>= 1) ]
+-- TestMap is a type of kind [(GHC.Types.Nat, Tree (* -> *))]
 
+-- Increment over a "Trace" effect, emitting it, and iterating.
 {-# INLINE stepTrace #-}
-stepTrace :: MonadEff ('Universe TestMap r)
-                      (Ctor Trace :>>= 1)
-                      a 
-          -> MonadEff ('Universe TestMap r) 
-                      (LookupIndex' 2 TestMap)
-                      a
+stepTrace :: MonadEff ('Universe TestMap r) (Ctor Trace :>>= 1)      a 
+          -> MonadEff ('Universe TestMap r) (LookupIndex' 1 TestMap) a
 stepTrace ((Eff u q) `Bind` k) = case u of
-  Trace t -> Debug.trace t $ unsafeCoerce $ Val (q ()) `Bind` k
+  Trace t -> Debug.trace t $ unsafeCoerce $ k (q ())
 
-{-# INLINE runTest' #-}
-runTest' :: MonadEff ('Universe TestMap r) (Pure :>>= k) a -> MonadEff ('Universe TestMap r) (LookupIndex' k TestMap) a
-runTest' m = case m of
-  (Val x `Bind` k) -> unsafeCoerce $ k x
-
-infiniteTraceTest :: MonadEff ('Universe TestMap r) (LookupIndex' 1 TestMap) Int
-infiniteTraceTest = 
+-- Uses a Trace effect and a recursive let binding for an infinite loop.
+infiniteTraceLoop :: MonadEff ('Universe TestMap r) (LookupIndex' 1 TestMap) Int
+infiniteTraceLoop = 
   let t (n :: Int) = Eff (Trace $ show n) (const $ n + 1) `Bind` t in t 0
 
 loop :: MonadEff ('Universe TestMap r) ('Ctor Trace ':>>= 1) a -> IO Void
 loop m = do
   case stepTrace m of
-    m'@(Val x' `Bind` _) -> do
-      loop (runTest' m')
+    m' -> loop (stepTrace m')
 
-testLoop = loop infiniteTraceTest
+-- Runs forever, loops over "Int" domain [0, 1, ..., maxBound, minBound, ... -1]
+testLoop = loop infiniteTraceLoop
 
 -- finiteTest = do
 --   let stepOnce m = do
