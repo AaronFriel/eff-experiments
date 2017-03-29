@@ -22,10 +22,13 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 
 {-# LANGUAGE TypeFamilyDependencies #-}
+{-# LANGUAGE Strict #-}
 
+{-# OPTIONS_GHC -funbox-strict-fields #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors -Wno-missing-signatures -Wno-redundant-constraints #-}
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 {-# OPTIONS_GHC -Ddump-splices #-}
+
 
 module Data.Iota.Unified.Indexed5
  -- ( Eff )
@@ -168,6 +171,7 @@ runTrace (Eff u q) = case u of
 
 type TestMap = '[ '(1, Ctor Trace :>>= 1), '(2, Pure :>>= 1) ]
 
+{-# INLINE stepTrace #-}
 stepTrace :: MonadEff ('Universe TestMap r)
                       (Ctor Trace :>>= 1)
                       a 
@@ -177,6 +181,7 @@ stepTrace :: MonadEff ('Universe TestMap r)
 stepTrace ((Eff u q) `Bind` k) = case u of
   Trace t -> Debug.trace t $ unsafeCoerce $ Val (q ()) `Bind` k
 
+{-# INLINE runTest' #-}
 runTest' :: MonadEff ('Universe TestMap r) (Pure :>>= k) a -> MonadEff ('Universe TestMap r) (LookupIndex' k TestMap) a
 runTest' m = case m of
   (Val x `Bind` k) -> unsafeCoerce $ k x
@@ -189,8 +194,9 @@ loop :: MonadEff ('Universe TestMap r) ('Ctor Trace ':>>= 1) a -> IO Void
 loop m = do
   case stepTrace m of
     m'@(Val x' `Bind` _) -> do
-      putStrLn . show $ (unsafeCoerce x' :: Int)
       loop (runTest' m')
+
+testLoop = loop infiniteTraceTest
 
 -- finiteTest = do
 --   let stepOnce m = do
