@@ -37,12 +37,12 @@ import Criterion.Main
 main = defaultMain [
   bgroup "main" [
     bgroup "count"
-      [ bench "iota" $ whnf benchCnt_Iota               1000000
-      , bench "iota-strict" $ whnf Strict.benchCnt_Iota 1000000
-      , bench "iota-Tagged" $ whnf Tagged.benchCnt_Iota 1000000
-      -- , bench "iota-Indexed" $ whnf Indexed.benchCnt_Iota 1000000
-      , bench "mtl" $ whnf benchCnt_State               1000000
-      , bench "eff" $ whnf benchCnt_Eff                 1000000
+      [ bench "iota" $ whnf benchCnt_Iota               100000
+      , bench "iota-strict" $ whnf Strict.benchCnt_Iota 100000
+      , bench "iota-Tagged" $ whnf Tagged.benchCnt_Iota 100000
+      -- , bench "iota-Indexed" $ whnf Indexed.benchCnt_Iota 100000
+      , bench "mtl" $ whnf benchCnt_State               100000
+      , bench "eff" $ whnf benchCnt_Eff                 100000
     ]
   -- , bgroup "mul"
   --     [ bench "iota" $ whnf benchMul_Iota               10000000
@@ -59,20 +59,20 @@ main = defaultMain [
   --     , bench "eff" $ whnf pythr_EFF 200
   --   ]
   , bgroup "RRRRS"
-      [ bench "iota" $ whnf I.mainRRRRS_Eff 1000000
-      , bench "iota-strict" $ whnf Strict.mainRRRRS_Eff 1000000
-      , bench "iota-Tagged" $ whnf Tagged.mainRRRRS_Eff 1000000
-      , bench "iota-Indexed" $ whnf Indexed.mainRRRRS_Eff 1000000
-      , bench "mtl" $ whnf mainRRRRS_MTL 1000000
-      , bench "eff" $ whnf mainRRRRS_Eff 1000000
+      [ bench "iota" $ whnf I.mainRRRRS_Eff 100000
+      , bench "iota-strict" $ whnf Strict.mainRRRRS_Eff 100000
+      , bench "iota-Tagged" $ whnf Tagged.mainRRRRS_Eff 100000
+      -- , bench "iota-Indexed" $ whnf Indexed.mainRRRRS_Eff 100000
+      , bench "mtl" $ whnf mainRRRRS_MTL 100000
+      , bench "eff" $ whnf mainRRRRS_Eff 100000
     ]
   , bgroup "SRRRR"
-      [ bench "iota" $ whnf I.mainSRRRR_Eff 1000000
-      , bench "iota-strict" $ whnf Strict.mainSRRRR_Eff 1000000
-      , bench "iota-Tagged" $ whnf Tagged.mainSRRRR_Eff 1000000
-      , bench "iota-Indexed" $ whnf Indexed.mainSRRRR_Eff 1000000
-      , bench "mtl" $ whnf mainSRRRR_MTL 1000000
-      , bench "eff" $ whnf mainSRRRR_Eff 1000000
+      [ bench "iota" $ whnf I.mainSRRRR_Eff 100000
+      , bench "iota-strict" $ whnf Strict.mainSRRRR_Eff 100000
+      , bench "iota-Tagged" $ whnf Tagged.mainSRRRR_Eff 100000
+      -- , bench "iota-Indexed" $ whnf Indexed.mainSRRRR_Eff 100000
+      , bench "mtl" $ whnf mainSRRRR_MTL 100000
+      , bench "eff" $ whnf mainSRRRR_Eff 100000
     ]
   ] ]
 
@@ -197,7 +197,7 @@ Speed-up by the factor of 2.
 be_make_list :: Int -> [Int]
 be_make_list n = replicate n 1 ++ [0]
 
-mainMul_pure = print . product $ be_make_list 1000000
+mainMul_pure = print . product $ be_make_list 100000
 -- 0
 -- (0.36 secs, 201559304 bytes)
 {-
@@ -215,7 +215,7 @@ benchMul_Error n = either id id m
  f acc 0 = Er.throwError 0
  f acc x = return $! acc * x
 
-mainMul_Error = print $ benchMul_Error 1000000
+mainMul_Error = print $ benchMul_Error 100000
 -- 0
 -- (1.39 secs, 584028840 bytes)
 {-
@@ -238,7 +238,7 @@ benchMul_Iota n = either id id . I.run . I.runError $ m
     f acc 0 = I.throwError (0::Int)
     f acc x = return $! acc * x
 
-mainMul_Eff = print $ benchMul_Eff 1000000
+mainMul_Eff = print $ benchMul_Eff 100000
 -- 0
 -- (1.09 secs, 519988392 bytes)
 {-
@@ -518,7 +518,7 @@ benchMax_MTL n = foldM f 1 [n, n-1 .. 0]
                             return $! max acc x
  f acc x = return $! max acc x
 
-mainMax_MTL = print $ S.runState (Er.runErrorT (benchMax_MTL 1000000)) 0
+mainMax_MTL = print $ S.runState (Er.runErrorT (benchMax_MTL 100000)) 0
 -- bytecode
 -- (Left 0,200000)
 -- (3.84 secs, 1419124008 bytes)
@@ -529,7 +529,7 @@ mainMax_MTL = print $ S.runState (Er.runErrorT (benchMax_MTL 1000000)) 0
 
 -- Different order of layers
 mainMax1_MTL = print $
-   (S.runStateT (benchMax_MTL 1000000) 0 :: Either Int (Int,Int))
+   (S.runStateT (benchMax_MTL 100000) 0 :: Either Int (Int,Int))
 -- Left 0
 -- (3.72 secs, 1389335288 bytes)
 {-
@@ -551,7 +551,7 @@ benchMax_Eff n = foldM f 1 [n, n-1 .. 0]
 
 
 mainMax_Eff = print $
- ((run $ E.runState (E.runError (benchMax_Eff 1000000)) 0) ::
+ ((run $ E.runState (E.runError (benchMax_Eff 100000)) 0) ::
      (Either Int Int,Int))
 -- bytecode
 -- (Left 0,200000)
@@ -567,7 +567,7 @@ with OpenUnion3.hs, lazy state
 -}
 
 mainMax1_Eff = print $
- ((run $ E.runError (E.runState (benchMax_Eff 1000000) 0)) ::
+ ((run $ E.runError (E.runState (benchMax_Eff 100000) 0)) ::
      Either Int (Int,Int))
 -- bytecode
 -- Left 0
@@ -578,10 +578,10 @@ Left 0
 -}
 
 -- No error layer
--- (1000000,200001)
+-- (100000,200001)
 -- (3.37 secs, 1520278144 bytes)
 {-
-(1000000,200001)
+(100000,200001)
 <<ghc: 310453944 bytes, 596 GCs, 28840/28840 avg/max bytes residency (1 samples), 1M in use, 0.00 INIT (0.00 elapsed), 0.08 MUT (0.08 elapsed), 0.00 GC (0.00 elapsed) :ghc>>
 -}
 
