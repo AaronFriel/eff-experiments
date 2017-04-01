@@ -29,6 +29,7 @@ library
                      , Data.Iota.Tagged.Eff1
                      , Data.Iota.Tagged.FTCQueue1
                      , Data.Iota.Tagged.OpenUnion51
+                     , Control.Monad.Graph
                      , Util
   build-depends:       base >= 4.7 && < 5
                     --  , eff  >= 0.1.0.0
