@@ -23,12 +23,13 @@ library
                      , Data.Iota.Strict.OpenUnion51
                      , Data.Iota.Unified.Eff1
                      , Data.Iota.Unified.Eff2
-                     , Data.Iota.Unified.Indexed5
+                     , Data.Iota.Unified.Indexed6
                      , Data.Iota.Unified.FTCQueue1
                      , Data.Iota.Unified.OpenUnion51
                      , Data.Iota.Tagged.Eff1
                      , Data.Iota.Tagged.FTCQueue1
                      , Data.Iota.Tagged.OpenUnion51
+                     , Util
   build-depends:       base >= 4.7 && < 5
                     --  , eff  >= 0.1.0.0
                      , mono-traversable

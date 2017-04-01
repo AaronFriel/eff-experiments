@@ -14,8 +14,6 @@
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
--- For unsafeSizeof
-{-# LANGUAGE MagicHash, UnboxedTuples #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
@@ -66,16 +64,6 @@ import Data.Typeable
 
 import qualified Debug.Trace as Debug
 
--- import qualified GHC.Exts as E
--- import qualified Foreign as F
-
--- unsafeSizeof :: a -> Int
--- unsafeSizeof a =
---   case E.unpackClosure# a of
---     (# x, ptrs, nptrs #) ->
---       F.sizeOf (undefined::Int) + -- one word for the header
---         E.I# (E.sizeofByteArray# (E.unsafeCoerce# ptrs)
---              E.+# E.sizeofByteArray# nptrs)
 
 intX :: Int
 intX = 5
@@ -150,6 +138,7 @@ $(promoteOnly [d|
   lookupValue'  value ((x,y):xys) = if value == y then x else lookupValue' value xys
 
   |])
+
 
 data MonadEff (u :: Universe Effect) j (a :: *)
   where
