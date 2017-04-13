@@ -23,7 +23,6 @@ library
                      , Data.Iota.Strict.OpenUnion51
                      , Data.Iota.Unified.Eff1
                      , Data.Iota.Unified.Eff2
-                     , Data.Iota.Unified.Indexed6
                      , Data.Iota.Unified.FTCQueue1
                      , Data.Iota.Unified.OpenUnion51
                      , Data.Iota.Tagged.Eff1
@@ -46,6 +45,7 @@ library
                      , type-level-sets
                      , cxmonad
                      , deepseq
+                     , hvect
   default-language:    Haskell2010
 
 test-suite eff-experiments-test
