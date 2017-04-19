@@ -42,7 +42,7 @@ import Data.Promotion.Prelude.Eq
 
 import Data.Singletons
 import Data.Singletons.Decide
-import Data.Singletons.Prelude
+import Data.Singletons.Prelude hiding (SNil)
 import Data.Singletons.TH
 import Data.Singletons.TypeLits
 import Data.Type.Equality
@@ -70,7 +70,7 @@ $(promoteOnly [d|
   |])
 
 $(singletons [d|
-  data Tree a = Empty | Do a | Aps (Tree a) [Tree a] | Tree a :>>= Tree a
+  data Tree a = Empty | Do a | Aps (Tree a) (Tree a) | Tree a :>>= Tree a
     deriving (Eq, Typeable)
 
   |])
@@ -184,7 +184,7 @@ data GraphEff (u :: Graph Effect) (i :: Tree Effect) b
   where
     V :: b -> GraphEff u Empty b
     E :: ctor ->  (Output ctor -> b) -> GraphEff u (Do ctor) b
-    A :: !(GraphEff u i0 (MakeF rs r)) -> GVect u is rs -> (r -> w) -> GraphEff u (Aps i0 is) w
+    A :: GraphEff u i (a -> b) -> GraphEff u j a -> GraphEff u (Aps i j) b
     B :: GraphEff u i a ->  Arrs u j a b -> GraphEff u (i :>>= j) b
 
 -- testIap :: GraphEff u i1 String -> GraphEff u i2 String -> GraphEff u (Aps Empty (i1 :| '[i2])) (String, String)
@@ -197,24 +197,16 @@ data GraphEff (u :: Graph Effect) (i :: Tree Effect) b
 --   A _ as q -> A (V (,)) (E (Ask @Int) (tsingleton V) :&: as) q
 
 type family GraphAp (i :: k) (j :: k) :: k where
-  GraphAp           (Do ctor)  Empty  = Do ctor
-  GraphAp           (Do i)     (Do j) = Aps (Do i) '[Do j]
-  GraphAp           (Do i) (Aps f as) = Aps (Do i) '[Aps f as]
-  GraphAp           (Do i) (j :>>= k) = Aps (Do i) '[j :>>= k]
-  GraphAp       (ctor :>>= i)      j  = ctor :>>= (GraphAp i j)
-  GraphAp          (Aps f as)      Empty = Aps f (as :++ '[Empty])
-  GraphAp          (Aps f as)     (Do j) = Aps f (as :++ '[Do j])
-  GraphAp          (Aps f as) (Aps f as) = Aps f (as :++ '[Aps f as])
-  GraphAp          (Aps f as) (j :>>= k) = Aps f (as :++ '[j :>>= k])
-  GraphAp               Empty  Empty  = Empty
-  GraphAp               Empty      j  = j
+  GraphAp           Empty          k  = k
+  GraphAp                i     Empty  = i
+  GraphAp                i         j  = Aps i j
 
--- type family GraphBind (i :: k) (j :: k) :: k where
---   GraphBind           Empty       Empty = Empty
---   GraphBind           Empty           j = j
---   GraphBind               i       Empty = i
---   GraphBind      (x :>>= xs)          j = x :>>= (GraphBind xs j)
---   GraphBind       (Aps f as)          j = (Aps (GraphBind f j) as)
+
+type family GraphBind (i :: k) (j :: k) :: k where
+  GraphBind           Empty       Empty = Empty
+  GraphBind           Empty           j = j
+  GraphBind      (x :>>= xs)          j = x :>>= (GraphBind xs j)
+  GraphBind               i           j = i :>>= j
 
 class GFunctor (f :: k -> * -> *) where
     gmap :: (a -> b) -> f p a -> f p b
@@ -233,82 +225,11 @@ class GApplicative p m => GMonad p (m :: k -> * -> *) where
     type Bindish (i :: k) (j :: k) :: k
     gbind :: BindishC (i :: k) p => (a -> m p b) -> m i a -> m (Bindish i p) b
 
-data WrappedMonad m i a where
-  WrappedMonad :: m a -> WrappedMonad m () a
-
--- instance Functor f => GFunctor i (WrappedMonad f) where
---     gmap f (WrappedMonad m) = WrappedMonad $ fmap f m
-
--- instance Applicative f => GPointed (WrappedMonad f) where
---   greturn a = WrappedMonad (pure a)
-
--- instance Applicative f => GApplicative (WrappedMonad f) where
---   type Apish (WrappedMonad f) () () = ()
---   gap (WrappedMonad u) (WrappedMonad v) = WrappedMonad (u <*> v)
-
--- instance Monad m => GMonad (WrappedMonad m) where
---   type Bindish (WrappedMonad m) () j = ()
---   k `gbind` (WrappedMonad m) = WrappedMonad (m >>= (\(WrappedMonad m') -> m') . k)
-
-data WrappedIx m p a where
-  WrappedIx :: m i j a -> WrappedIx m (i, j) a
-
-unwrap :: WrappedIx m (i, j) a -> m i j a
-unwrap (WrappedIx m) = m
-
-unwrapL :: (a -> WrappedIx m (i, j) b) -> (a -> m i j b)
-unwrapL k = (\a -> unwrap $ k a)
-
-liftBind :: IxMonad m => WrappedIx m (i, j) a -> (a -> WrappedIx m (j, k) b) -> WrappedIx m (i, k) b
-liftBind m k = WrappedIx $ ibind (unwrapL k) (unwrap m)
-
-class GWrapped w f p where
-  data Wrapped w f p
-  -- type UnwrappedArg w f (p :: pk) = (r :: * -> *) | r -> w f p
-  -- type WrappedArg w f (p :: pk) = (r :: * -> *) | r -> w f p
-  -- unwrap :: (w f (p :: pk)) a -> (UnwrappedArg w f p) a
-  -- wrap :: (UnwrappedArg w f p) a -> WrappedArg w f p a
-
--- instance GWrapped WrappedIx m '(i, j) where
---   data Wrapped WrappedIx m '(i, j) = Wrapped (m i j)
---     type UnwrappedArg WrappedIx m '(i, j) = m i j
---     type WrappedArg WrappedIx m '(i, j) = WrappedIx m '(i, j)
---     unwrap (WrappedIx m) = m
---     wrap m = WrappedIx m
-
-instance IxFunctor f => GFunctor (WrappedIx f) where
-    gmap :: forall a b p. (a -> b) -> WrappedIx f p a -> WrappedIx f p b
-    gmap f (WrappedIx m) = WrappedIx (imap @f @a @b f m)
-
-instance IxPointed f => GPointed (i, j) (WrappedIx f) where
-    type EmptyishC (i, j) = (i ~ j)
-    greturn a = WrappedIx $ ireturn a
-
-instance IxApplicative f => GApplicative (i, j) (WrappedIx f) where
-  type ApishC (i, j1) (j2, k) = (j1 ~ j2)
-  type Apish (i, j1) (j2, k) = (i, k)
-  gap (WrappedIx u) (WrappedIx v) = WrappedIx (iap u v)
-
-instance IxMonad m => GMonad (j2, k) (WrappedIx m) where
-  type BindishC (i, j1) (j2, k) = (j1 ~ j2)
-  type Bindish (i, j1) (j2, k) = (i, k)
-  k `gbind` (WrappedIx m) = WrappedIx $ (\a -> (case k a of WrappedIx k' -> k')) `ibind` m
-
--- class DeepAp i where
---   deepAp :: (a -> b) -> GraphEff u i a -> GraphEff u i b
-  
--- instance DeepAp (ctor :>>= j) where
---   deepAp :: (a -> b) -> GraphEff u (ctor :>>= j) a -> GraphEff u (ctor :>>= j) b
---   deepAp f (E u q) = E u (q |> (V . f))
-  
--- instance DeepAp (ctor :>>= j) => DeepAp (Aps (ctor :>>= j) (a1 :| '[])) where
---   -- deepAp :: (a -> b) -> GraphEff u (ctor :>>= j) a -> GraphEff u (ctor :>>= j) b
---   deepAp f (A a@(E u q) as@(_)) = A (E u (q |> (V . f))) as
-
 instance GFunctor (GraphEff u) where
     gmap f (V x)    = V (f x)
     gmap f (E u q)  = E u (f . q)
-    gmap f (A a as q) = A a as (f . q)
+    gmap f (A a as) = A (gmap (f .) a) as
+    gmap f (B u q)  = B u (q |> (V . f))
 
 instance GPointed i (GraphEff u) where
     type EmptyishC i = i ~ 'Empty 
@@ -318,54 +239,31 @@ instance GApplicative j (GraphEff u) where
     type Apish i j = GraphAp i j
     type ApishC i j = ()
 
-    V f `gap` V x   = V $ f x
-    V f `gap` E u q = E u (f . q)
-    V f `gap` A a as q = A a as (f . q)
-    V f `gap` B u q = B u (q |> (V . f))
--- --     -- -- V f@(_) `gap` A u@(_) q = A (V f :&: u) (coerce q)
-    E u q `gap` m  = case m of
-      V x     -> E u (\o -> (q o) x)
-      E _ _   -> A (E u q) (m :<&> GNil) id
-      A _ _ _ -> A (E u q) (m :<&> GNil) id
-      B _ _   -> A (E u q) (m :<&> GNil) id
-    -- A a@(_) as@(_) q `gap` V y = A (GraphEff u i (MakeF rs (a -> b)) (apqappend as (V y)) undefined
-    -- E u q `gap` A a as r = A (E u q) (A a as r :<&> GNil) id
-    -- E u q `gap` B v r  = A (E u q) (B v r :<&> GNil) id
-    -- A a as q `gap` V x = A a as (\o -> (q o) x)
-    -- A a as q `gap` V x = A a as (\o -> (q o) x)
---     E u q `gap` m      = E u (q |> undefined)
-    -- A a as q `gap` m   = 
---     -- B u q `gap` m   = B u (q ||> (`gmap` m))
+    V f `gap` m = gmap f m
+    E u q `gap` k = case k of
+      V x   -> E u (\o -> (q o) x)
+      E _ _ -> A (E u q) k
+      A _ _ -> A (E u q) k
+      B _ _ -> A (E u q) k
+    A i j `gap` k = case k of
+      V x   -> A (gmap (\f -> flip f $ x) i) j
+      E _ _ -> A (A i j) k
+      B _ _ -> A (A i j) k
+      A _ _ -> A (A i j) k
+    B u q `gap` k = case k of
+      V x   -> B u (q |> (V . ($ x)))
+      E _ _ -> A (B u q) k
+      B _ _ -> A (B u q) k
+      A _ _ -> A (B u q) k
 
--- (<|*|>) :: forall u i0 is a b ik. GraphEff u (Aps i0 is) (a -> b) -> GraphEff u ik a -> GraphEff u (Aps i0 (is :++ '[ik])) b
--- (A f@(_) vec@(_) q@(_)) <|*|> g = case (f, vec, q) of
---   (_ :: GraphEff u i0 (MakeF rs (a -> r)), _ :: GVect u is rs, _ :: (_ -> (a -> b))) -> A undefined undefined undefined -- A (f) (apqappend vec g) undefined
+instance GMonad j (GraphEff u) where
+    type Bindish i j = GraphBind i j
+    type BindishC i j = ()
 
--- instance GMonad (GraphEff u) where
---     type Bindish (GraphEff u) i j = GraphBind i j
---     gbind :: (a -> GraphEff u j b) -> GraphEff u i a -> GraphEff u (GraphBind i j) b
---     k `gbind` (V x) = k x
-    -- k `gbind` m@(E u@(_) q@(_)) = (E u undefined)
--- If we define GraphEff like this, then the type roles of i, j are nominal, and `coerce` fails.
--- data ViewEff (u :: Graph Effect) (j :: Tree Effect) b
---   where
---     ViewV :: b -> ViewEff u Empty b
---     ViewE :: ctor -> Arrs u (Output ctor) b -> ViewEff u (Do ctor :>>= k) b
-
--- class View j where
---   view :: GraphEff u 'Empty j b -> ViewEff u j b
-
--- instance View 'Empty where
---   view (V x)   = ViewV x
---   view (E _ _) = error "Impossible."
-
--- instance View (Do ctor :>>= k)  where
---   view (E u q) = ViewE (unsafeCoerce u) (unsafeCoerce q)
---   view (V _)   = error "Impossible."
-
--- (||>) :: Arrs u i a x -> (x -> GraphEff u i b) -> Arrs u i a b
--- t ||> r = Node (coerce t) (Leaf (coerce r))
-
+    k `gbind` (V x)    = k x
+    k `gbind` (E u q)  = B (E u q) (tsingleton k)
+    k `gbind` (A a as) = B (A a as) (tsingleton k)
+    k `gbind` (B u q)  = B u (q |> k)
 
 type family LookupEffect' (efx :: [*]) (e :: *) = (r :: Nat) where
   LookupEffect' (e ': efx) e = 0
@@ -545,15 +443,31 @@ data Val k (v :: k) = Var
 -- data Trace v where
 --   Trace :: String -> Trace ()
 
+-- infixr 5 <|
+-- infixl 5 |>
+-- infix 5 ><
+{- | A type class for type aligned sequences
+ 
+Minimal complete defention: 'tempty' and 'tsingleton' and ('tviewl' or 'tviewr') and ('><' or '|>' or '<|')
 
+Instances should satisfy the following laws:
+
+Category laws:
+
+> tempty >< x == x
+> x >< tempty == x
+> (x >< y) >< z = x >< (y >< z)
+
+Observation laws:
+
+> tviewl (tsingleton e >< s) == e :< s
+> tviewl tempty == TAEmptyL
+
+The behaviour of '<|','|>', 'tmap' and 'tviewr' is implied by the above laws and their default definitions.
+-}
 
 -- Non-empty tree. Deconstruction operations make it more and more
 -- left-leaning
-
-data GVect u i b where
-  GNil   :: GraphEff u i (a -> b) -> GVect u (Aps i '[]) (a -> b)
-  -- (:<&>) :: !(GVect u (Aps i0 is) (a->b)) -> !(GraphEff u i a) -> GVect u (Aps i0 (i :++ is)) (r ': rs) 
-infixr 5 :<&>
 
 -- apqappend :: GVect u is rs -> GraphEff u i r -> GVect u (is :++ '[i]) (rs :++ '[r])
 -- apqappend      GNil  m = m :<&> GNil
@@ -578,7 +492,7 @@ infixr 5 :<&>
 -- -- appendG v@(GSingle a) g = (a :<&> _ g)
 
 -- data ApQueue u i w where
---   ApQueue :: GVect u (Aps 'Empty is) (a -> b) -> GraphEff u i a -> ApQueue i (Aps 'Empty (i :' is))
+--   ApQueue :: GVect u (Aps 'Empty is) (a -> b) -> GraphEff u i a -> ApQueue i (Aps 'Empty (i ': is)) b
 
     -- E :: ctor ->  Arrs u j (Output ctor) b -> GraphEff u (ctor :>>= j) b
 
@@ -718,3 +632,46 @@ $(promoteOnly [d|
 
 -- runInterpreters :: GraphEff u 'Empty j a -> a
 -- runInterpreters = undefined
+
+
+data WrappedMonad m i a where
+  WrappedMonad :: m a -> WrappedMonad m () a
+
+instance Functor f => GFunctor (WrappedMonad f) where
+    gmap f (WrappedMonad m) = WrappedMonad $ fmap f m
+
+instance Applicative f => GPointed () (WrappedMonad f) where
+  type EmptyishC () = ()
+  greturn a = WrappedMonad (pure a)
+
+instance Applicative f => GApplicative () (WrappedMonad f) where
+  type Apish () () = ()
+  type ApishC () () = ()
+  gap (WrappedMonad u) (WrappedMonad v) = WrappedMonad (u <*> v)
+
+instance Monad m => GMonad () (WrappedMonad m) where
+  type Bindish () () = ()
+  type BindishC () () = ()
+  k `gbind` (WrappedMonad m) = WrappedMonad (m >>= (\(WrappedMonad m') -> m') . k)
+
+data WrappedIx m p a where
+  WrappedIx :: m i j a -> WrappedIx m (i, j) a
+
+instance IxFunctor f => GFunctor (WrappedIx f) where
+    gmap :: forall a b p. (a -> b) -> WrappedIx f p a -> WrappedIx f p b
+    gmap f (WrappedIx m) = WrappedIx (imap f m)
+
+instance IxPointed f => GPointed (i, j) (WrappedIx f) where
+    type EmptyishC (i, j) = (i ~ j)
+    greturn a = WrappedIx $ ireturn a
+
+instance IxApplicative f => GApplicative (i, j) (WrappedIx f) where
+  type ApishC (i, j1) (j2, k) = (j1 ~ j2)
+  type Apish (i, j1) (j2, k) = (i, k)
+  gap (WrappedIx u) (WrappedIx v) = WrappedIx (iap u v)
+
+instance IxMonad m => GMonad (j2, k) (WrappedIx m) where
+  type BindishC (i, j1) (j2, k) = (j1 ~ j2)
+  type Bindish (i, j1) (j2, k) = (i, k)
+  k `gbind` (WrappedIx m) = WrappedIx $ (\a -> (case k a of WrappedIx k' -> k')) `ibind` m
+

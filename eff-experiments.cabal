@@ -46,6 +46,7 @@ library
                      , cxmonad
                      , deepseq
                      , hvect
+                     , constraints
   default-language:    Haskell2010
 
 test-suite eff-experiments-test
