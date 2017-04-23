@@ -42,6 +42,21 @@ data GraphEff (u :: Graph Effect) (i :: Tree Effect) b where
     A :: GraphEff u i (a -> b) -> GraphEff u j a -> GraphEff u (i :<*> j) b
     B :: GraphEff u i a ->  Arrs u j a b -> GraphEff u (i :>>= j) b
 
+instance KEffect (GraphEff u) where
+    type Unit (GraphEff u) = 'Empty
+    type Inv  (GraphEff u) i j = ()
+    type Plus (GraphEff u) i j = GraphBind i j
+
+instance Fmappable (GraphEff u) where
+    type Fmap  (GraphEff u) i   = GraphMap i
+
+instance Applyable (GraphEff u) where
+    type Apply (GraphEff u) i j = GraphAp i j
+
+instance Bindable (GraphEff u) where
+    type Bind  (GraphEff u) i j = GraphBind i j
+
+
 type family GraphMap (i :: k) :: k where
     GraphMap      Empty  = Empty
     GraphMap      (Do i) = Do i 
@@ -61,46 +76,38 @@ type family GraphBind (i :: k) (j :: k) :: k where
     GraphBind  (x :>>= xs)      j = x :>>= (TNode xs (TLeaf j))
     GraphBind           i       j = i :>>= TLeaf j
 
-instance GFunctor (GraphEff u) where
-    type Mapish j = GraphMap j
-    gmap f (V x)    = V (f x)
-    gmap f (E u q)  = E u (f . q)
-    gmap f (A a as) = A (gmap (f .) a) as
-    gmap f (B u q)  = B u (q |> (V . f))
+instance KFunctor (GraphEff u) where
+    kmap f (V x) = V (f x)
+    kmap f (E u q)  = E u (f . q)
+    kmap f (A a as) = A (kmap (f .) a) as
+    kmap f (B u q)  = B u (q |> (V . f))
 
-instance GPointed i (GraphEff u) where
-    type EmptyishC i = i ~ Empty 
-    greturn = V
+instance KPointed (GraphEff u) where
+    kreturn = V
 
-instance GApplicative j (GraphEff u) where
-    type Apish i j = GraphAp i j
-    type ApishC i j = ()
-
-    V f `gap` m = gmap f m
-    E u q `gap` k = case k of
+instance KApplicative (GraphEff u) where
+    V f `kap` m = kmap f m
+    E u q `kap` k = case k of
       V x   -> E u (\o -> (q o) x)
       E _ _ -> A (E u q) k
       A _ _ -> A (E u q) k
       B _ _ -> A (E u q) k
-    A i j `gap` k = case k of
-      V x   -> A (gmap (\f -> flip f $ x) i) j
+    A i j `kap` k = case k of
+      V x   -> A (kmap (\f -> flip f $ x) i) j
       E _ _ -> A (A i j) k
       B _ _ -> A (A i j) k
       A _ _ -> A (A i j) k
-    B u q `gap` k = case k of
+    B u q `kap` k = case k of
       V x   -> B u (q |> (V . ($ x)))
       E _ _ -> A (B u q) k
       B _ _ -> A (B u q) k
       A _ _ -> A (B u q) k
 
-instance GMonad j (GraphEff u) where
-    type Bindish i j = GraphBind i j
-    type BindishC i j = ()
-
-    k `gbind` (V x)    = k x
-    k `gbind` (E u q)  = B (E u q) (tsingleton k)
-    k `gbind` (A a as) = B (A a as) (tsingleton k)
-    k `gbind` (B u q)  = B u (q |> k)
+instance KMonad (GraphEff u) where
+    (V x)    `kbind` k = k x
+    (E u q)  `kbind` k = B (E u q) (tsingleton k)
+    (A a as) `kbind` k = B (A a as) (tsingleton k)
+    (B u q)  `kbind` k = B u (q |> k)
 
 -- type role FTCQueue representational phantom representational nominal
 data FTCQueue m (i :: BindTree Effect) a b where
@@ -147,11 +154,3 @@ tviewl (Node t1 t2) = go t1 t2
 
 send :: ctor -> GraphEff u (Do ctor) (Output ctor)
 send t = E t id
-
--- type family BindView i where
---     BindView (TLeaf r)       = r
---     BindView (TNode tl1 tl2) = BindView' tl1 tl2
-
--- type family BindView' i where
---     BindView (TLeaf r)       tr = r :>>= tr
---     BindView (TNode tl1 tl2) tr = FViewL' tl1 tl2

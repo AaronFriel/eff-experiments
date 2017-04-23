@@ -18,9 +18,17 @@ class KEffect (f :: k -> * -> *) where
     type Inv f (i :: k) (j :: k) :: Constraint
     type family Plus f (i :: k) (j :: k) :: k
 
-type family Fmap (f :: k -> * -> *) (i :: k) :: k
-type family Ap (f :: k -> * -> *) (i :: k) (j :: k) :: k
-type family Bind (f :: k -> * -> *) (i :: k) (j :: k) :: k
+class Fmappable (f :: k -> * -> *) where
+    type family Fmap (f :: k -> * -> *) (i :: k) :: k
+    type instance Fmap f i = i
+
+class KEffect f => Applyable (f :: k -> * -> *) where
+    type family Apply (f :: k -> * -> *) (i :: k) (j :: k) :: k
+    type instance Apply f i j = Plus f i j
+
+class KEffect f => Bindable (f :: k -> * -> *) where
+    type family Bind (f :: k -> * -> *) (i :: k) (j :: k) :: k
+    type instance Bind f i j = Plus f i j
 
 class KEffect f => KPointed (f :: k -> * -> *) where
     kreturn :: a -> f (Unit f) a
@@ -29,7 +37,7 @@ class KEffect f => KFunctor (f :: k -> * -> *) where
     kmap :: (a -> b) -> f i a -> f (Fmap f i) b
 
 class (KFunctor f, KPointed f) => KApplicative (f :: k -> * -> *) where
-    kap :: Inv f i j => f i (a -> b) -> f j a -> f (Ap f i j) b
+    kap :: Inv f i j => f i (a -> b) -> f j a -> f (Apply f i j) b
 
 class KApplicative f => KMonad (f :: k -> * -> *) where
     kbind :: Inv f i j => f i a -> (a -> f j b) -> f (Bind f i j) b
@@ -37,7 +45,7 @@ class KApplicative f => KMonad (f :: k -> * -> *) where
 -- Wrapping a non-indexed type: 
 
 newtype WrappedM (m :: * -> *) (p :: ()) a where
-    WrappedM :: forall (m :: * -> *) (p :: ()) a. m a -> WrappedM m p a
+    WrappedM :: m a -> WrappedM m p a
 
 unM :: WrappedM m p a -> m a
 unM (WrappedM m) = m
@@ -47,9 +55,9 @@ instance KEffect (WrappedM m :: () -> * -> *) where
     type Inv  (WrappedM m) i j = (i ~ '(), j ~ '())
     type Plus (WrappedM m) i j = '()
 
-type instance Fmap (WrappedM m) i = i
-type instance Ap (WrappedM m) i j = Plus (WrappedM m) i j
-type instance Bind (WrappedM m) i j = Plus (WrappedM m) i j 
+instance Fmappable (WrappedM m)
+instance Applyable (WrappedM m)
+instance Bindable (WrappedM m)
 
 instance Applicative m => KPointed (WrappedM m) where
     kreturn = WrappedM . pure
@@ -78,9 +86,9 @@ instance KEffect (IxEff m :: CatArr i j -> * -> *) where
     type Plus (IxEff m) ('CArrow a b) ('CatId     ) = 'CArrow a b
     type Plus (IxEff m) ('CatId     ) ('CArrow c d) = 'CArrow c d
 
-type instance Fmap (IxEff m) i = i
-type instance Ap (IxEff m) i j = Plus (IxEff m) i j
-type instance Bind (IxEff m) i j = Plus (IxEff m) i j 
+instance Fmappable (IxEff m)
+instance Applyable (IxEff m)
+instance Bindable (IxEff m)
 
 type family FstArr (p :: CatArr i j) where
     FstArr ('CArrow a b) = a
@@ -111,9 +119,9 @@ instance KEffect (WrappedIx m) where
     type Inv  (WrappedIx m) i j = (SndArr i ~~ FstArr j)
     type Plus (WrappedIx m) i j  = 'CArrow (FstArr i) (SndArr j)  
 
-type instance Fmap (WrappedIx m) i = i
-type instance Ap (WrappedIx m) i j = Plus (WrappedIx m) i j
-type instance Bind (WrappedIx m) i j = Plus (WrappedIx m) i j 
+instance Fmappable (WrappedIx m)
+instance Applyable (WrappedIx m)
+instance Bindable (WrappedIx m)
 
 instance IxPointed m => KPointed (WrappedIx m) where
     kreturn = WrappedIx . ireturn

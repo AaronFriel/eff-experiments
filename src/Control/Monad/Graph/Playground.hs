@@ -19,10 +19,13 @@
 {-# LANGUAGE LiberalTypeSynonyms #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 
+{-# OPTIONS_GHC -Wno-unticked-promoted-constructors -Wno-missing-signatures -Wno-unused-imports -Wno-type-defaults -Wno-partial-type-signatures #-}
+
 module Control.Monad.Graph.Playground where
 
 import Control.Monad.Graph.Eff
-import Control.Monad.Graph.Class
+
+import qualified Control.Monad.Graph.Prelude as G
 
 import GHC.Exts (Constraint)
 
@@ -47,19 +50,19 @@ import Prelude hiding (
     )
 
 fmap :: (a -> b) -> GraphEff u i a -> GraphEff u (GraphMap i) b
-fmap = gmap
+fmap = G.fmap
 
 (<$) :: b -> GraphEff u i a -> GraphEff u (GraphMap i) b
-(<$) = fmap . const
+(<$) = G.fmap . const
 
 (<$>) :: (a -> b) -> GraphEff u i a -> GraphEff u (GraphMap i) b
-(<$>) = fmap
+(<$>) = G.fmap
 
 pure :: a -> GraphEff u 'Empty a
-pure = greturn
+pure = G.pure
 
 (<*>) :: GraphEff u i (a -> b) -> GraphEff u j a -> GraphEff u (GraphAp i j) b
-(<*>) = gap
+(<*>) = (G.<*>)
 
 (*>) :: GraphEff u i a -> GraphEff u j b -> GraphEff u (GraphAp (GraphMap i) j) b
 a1 *> a2 = (id <$ a1) <*> a2
@@ -68,13 +71,13 @@ a1 *> a2 = (id <$ a1) <*> a2
 (<*) = liftA2 const
 
 return :: a -> GraphEff u 'Empty a
-return = greturn
+return = G.pure
 
 (=<<) :: (a -> GraphEff u j b) -> GraphEff u i a -> GraphEff u (GraphBind i j) b
-(=<<) = gbind
+(=<<) = flip (>>=)
 
 (>>=) :: GraphEff u i a -> (a -> GraphEff u j b) -> GraphEff u (GraphBind i j) b
-(>>=) = flip (=<<)
+(>>=) = (G.>>=)
 
 -- Simplified binding, what GHC.Base would like to do but cannot for backwards compatbility.
 (>>) :: GraphEff u i a -> GraphEff u j b -> GraphEff u (GraphAp (GraphMap i) j) b
@@ -281,7 +284,7 @@ runWriter m o = case m of
     (V x)   -> V (x, o)
     (E u q) -> case (decompE @(Writer o) m, u) of
         (Right Refl, Tell o') -> V (q (), o' : o)
-        -- (Left Refl,  _      ) -> gmap (\r -> (r, o)) (E u q)
+        -- (Left Refl,  _      ) -> fmap (\r -> (r, o)) (E u q)
     (B u q) -> case (decompB @(Writer o) m, u) of
         (Right (Refl, Refl), E (Tell o') q') -> case tviewl $ q of
             TOne f -> (f (q' ()), o' : o)
