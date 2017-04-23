@@ -1,115 +1,128 @@
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeInType #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeFamilyDependencies #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE ConstraintKinds #-}
 
-{-# LANGUAGE KindSignatures #-}
+-- Makes for nicer type families where Plus is reused.
+{-# LANGUAGE UndecidableInstances #-}
 
 module Control.Monad.Graph.Class where
 
-import GHC.Exts (Constraint)
+import Data.Kind (Constraint, type (*))
 import Control.Monad.Indexed
-
-import Data.Kind (type (*))
 import Data.Type.Equality
+import GHC.Base (Any)
 
--- Not yet totally satisfied with this.
--- Better than associated types right now, though.
-type family PurishCxt (i :: k) = (r :: Constraint)
-type family Fmapish (i :: k) = (r :: k)
-type family ApCxt (i :: ki) (j :: kj) (r :: kr) = (cxt :: Constraint)
-type family BindCxt (i :: ki) (j :: kj) (r :: kr) = (cxt :: Constraint)
+class KEffect (f :: k -> * -> *) where
+    type Unit f :: k
+    type Inv f (i :: k) (j :: k) :: Constraint
+    type family Plus f (i :: k) (j :: k) :: k
 
-class Apish k where
-    type Ap (i :: k) (j :: k)
+type family Fmap (f :: k -> * -> *) (i :: k) :: k
+type family Ap (f :: k -> * -> *) (i :: k) (j :: k) :: k
+type family Bind (f :: k -> * -> *) (i :: k) (j :: k) :: k
 
--- type ApIx ('Ix i j') ('Ix j' k) = Ix i k
+class KEffect f => KPointed (f :: k -> * -> *) where
+    kreturn :: a -> f (Unit f) a
 
--- type family ApIx a b where
---     ApIx (Ix i j') (Ix j' k) = Ix i k
+class KEffect f => KFunctor (f :: k -> * -> *) where
+    kmap :: (a -> b) -> f i a -> f (Fmap f i) b
 
+class (KFunctor f, KPointed f) => KApplicative (f :: k -> * -> *) where
+    kap :: Inv f i j => f i (a -> b) -> f j a -> f (Ap f i j) b
 
--- type family Ap (i :: k) (j :: k) = (r :: k)
+class KApplicative f => KMonad (f :: k -> * -> *) where
+    kbind :: Inv f i j => f i a -> (a -> f j b) -> f (Bind f i j) b
 
--- An alternative would be to make GFunctor, et al, require `f` to be a data family
--- with these operations defined? That might be better.
+-- Wrapping a non-indexed type: 
 
-class GFunctor (f :: k -> * -> *) where
-    gmap :: (a -> b) -> f i a -> f (Fmapish i) b
+newtype WrappedM (m :: * -> *) (p :: ()) a where
+    WrappedM :: forall (m :: * -> *) (p :: ()) a. m a -> WrappedM m p a
 
-class GFunctor f => GPointed (f :: k -> * -> *) where
-    greturn :: PurishCxt i => a -> f i a
+unM :: WrappedM m p a -> m a
+unM (WrappedM m) = m
 
-class GPointed f => GApplicative (f :: k -> * -> *) where
-    gap :: ApCxt i j (r :: k) => f i (a -> b) -> f j a -> f r b
+instance KEffect (WrappedM m :: () -> * -> *) where
+    type Unit (WrappedM m) = '()
+    type Inv  (WrappedM m) i j = (i ~ '(), j ~ '())
+    type Plus (WrappedM m) i j = '()
 
-class GApplicative m => GMonad (m :: k -> * -> *) where
-    -- type Bind (a :: k) (b :: k) :: (c :: k)
-    gbind :: BindCxt i j (r :: k) => (a -> m j b) -> m i a -> m r b
+type instance Fmap (WrappedM m) i = i
+type instance Ap (WrappedM m) i j = Plus (WrappedM m) i j
+type instance Bind (WrappedM m) i j = Plus (WrappedM m) i j 
 
-newtype WrappedMonad m (p :: ()) a = WrappedMonad { unwrapM :: m a }
+instance Applicative m => KPointed (WrappedM m) where
+    kreturn = WrappedM . pure
 
-type instance PurishCxt () = ()
-type instance Fmapish () = ()
-type instance ApCxt () () () = ()
-type instance BindCxt () () () = ()
+instance Functor m => KFunctor (WrappedM m) where
+    kmap f = WrappedM . fmap f . unM
 
-deriving instance Show (m a) => Show (WrappedMonad m '() a)
-deriving instance Eq (m a) => Eq (WrappedMonad m '() a)
-deriving instance Ord (m a) => Ord (WrappedMonad m '() a)
+instance Applicative m => KApplicative (WrappedM m) where
+    kap (WrappedM m) (WrappedM k) = WrappedM $ m <*> k
 
-instance Functor f => GFunctor (WrappedMonad f) where
-    gmap f (WrappedMonad m) = WrappedMonad $ fmap f m
+instance Monad m => KMonad (WrappedM m) where
+    kbind (WrappedM m) k = WrappedM $ m >>= (\a -> (case k a of WrappedM k' -> k'))
 
-instance Applicative f => GPointed (WrappedMonad f) where
-    greturn a = WrappedMonad (pure a)
+-- Wrapping an indexed type with two phantom parameters, parameters form a category.
+newtype IxEff (m :: * -> *) (p :: CatArr i j) (a :: *) = IxEff { unIx :: m a }
 
-instance Applicative f => GApplicative (WrappedMonad f) where
-    gap (WrappedMonad u) (WrappedMonad v) = WrappedMonad (u <*> v)
+data CatArr a b where
+    CatId :: CatArr a b
+    CArrow  :: a -> b -> CatArr a b
 
-instance Monad m => GMonad (WrappedMonad m) where
-    k `gbind` (WrappedMonad m) = WrappedMonad (m >>= (\(WrappedMonad m') -> m') . k)
+instance KEffect (IxEff m :: CatArr i j -> * -> *) where
+    type Unit (IxEff m) = 'CatId
+    type Inv  (IxEff m) ('CArrow a b) ('CArrow c d) = b ~~ c
+    type Plus (IxEff m) ('CatId     ) ('CatId     ) = 'CatId 
+    type Plus (IxEff m) ('CArrow a b) ('CArrow c d) = 'CArrow a d
+    type Plus (IxEff m) ('CArrow a b) ('CatId     ) = 'CArrow a b
+    type Plus (IxEff m) ('CatId     ) ('CArrow c d) = 'CArrow c d
 
-data Ix a b = Ix a b
+type instance Fmap (IxEff m) i = i
+type instance Ap (IxEff m) i j = Plus (IxEff m) i j
+type instance Bind (IxEff m) i j = Plus (IxEff m) i j 
 
--- data Ix a b where
---     Ix :: a -> b -> Ix a b 
+type family FstArr (p :: CatArr i j) where
+    FstArr ('CArrow a b) = a
+    FstArr ('CatId :: CatArr i j) = (Any :: i)
 
-newtype Wix m (i :: ()) (j :: ()) a = Wix { unWix :: m a }
+type family SndArr (p :: CatArr i j) where
+    SndArr ('CArrow a b) = b
+    SndArr ('CatId :: CatArr i j) = (Any :: j)
 
-type instance PurishCxt (a :: Ix i j) = (i ~~ j)
-type instance Fmapish (a :: (Ix i j)) = (a :: Ix i j)
-type instance ApCxt (a :: Ix i j) (b :: Ix j' k) (r :: Ix i' k') = (j ~~ j', i ~~ i', k ~~ k')
-type instance BindCxt (a :: Ix i j) (b :: Ix j' k) (r :: Ix i' k') = (j ~~ j', i ~~ i', k ~~ k')
+instance Applicative m => KPointed (IxEff m) where
+    kreturn = IxEff . pure
 
+instance Functor m => KFunctor (IxEff m) where
+    kmap f = IxEff . fmap f . unIx
 
-instance Functor m => IxFunctor (Wix m) where
-    imap f (Wix m) = Wix (fmap f m)
-instance Applicative m => IxPointed (Wix m) where
-    ireturn a = Wix (pure a)
-instance Applicative m => IxApplicative (Wix m) where
-    iap (Wix m) (Wix k) = Wix (m <*> k)
-instance Monad m => IxMonad (Wix m) where
-    ibind k (Wix m) = Wix $ (\a -> case k a of Wix k' -> k') =<< m
+instance Applicative m => KApplicative (IxEff m) where
+    kap (IxEff m) (IxEff k) = IxEff $ m <*> k
 
-newtype WrappedIx m (p :: Ix i j) a = WrappedIx { unwrapIx :: m i j a }
+instance Monad m => KMonad (IxEff m) where
+    kbind (IxEff m) k = IxEff $ m >>= (\a -> (case k a of IxEff k' -> k'))
 
-instance IxFunctor f => GFunctor (WrappedIx f) where
-    gmap f (WrappedIx m) = WrappedIx (imap f m)
+-- Wrapped IxMonad from Control.Monad.Indexed
 
-instance IxPointed f => GPointed (WrappedIx f) where
-    greturn a = WrappedIx $ ireturn a
+newtype WrappedIx (m :: k -> k -> * -> *) (p :: CatArr k k) a = WrappedIx { unWix :: m (FstArr p) (SndArr p) a }
 
-instance IxApplicative f => GApplicative (WrappedIx f) where
-    gap (WrappedIx u) (WrappedIx v) = WrappedIx (iap u v)
+instance KEffect (WrappedIx m) where
+    type Unit (WrappedIx m) = 'CatId
+    type Inv  (WrappedIx m) i j = (SndArr i ~~ FstArr j)
+    type Plus (WrappedIx m) i j  = 'CArrow (FstArr i) (SndArr j)  
 
-instance IxMonad m => GMonad (WrappedIx m) where
-    k `gbind` (WrappedIx m) = WrappedIx $ (\a -> (case k a of WrappedIx k' -> k')) `ibind` m
+type instance Fmap (WrappedIx m) i = i
+type instance Ap (WrappedIx m) i j = Plus (WrappedIx m) i j
+type instance Bind (WrappedIx m) i j = Plus (WrappedIx m) i j 
+
+instance IxPointed m => KPointed (WrappedIx m) where
+    kreturn = WrappedIx . ireturn
+
+instance IxFunctor m => KFunctor (WrappedIx m) where
+    kmap f = WrappedIx . imap f . unWix
+
+instance IxApplicative m => KApplicative (WrappedIx m) where
+    kap (WrappedIx m) (WrappedIx k) = WrappedIx $ m `iap` k
+
+instance IxMonad m => KMonad (WrappedIx m) where
+    kbind (WrappedIx m) k = WrappedIx $ (\a -> (case k a of WrappedIx k' -> k')) `ibind` m

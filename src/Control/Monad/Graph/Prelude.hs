@@ -1,26 +1,27 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NoImplicitPrelude #-}
--- {-# LANGUAGE RebindableSyntax #-}
--- {-# LANGUAGE ApplicativeDo #-}
--- {-# LANGUAGE GADTs #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
--- {-# LANGUAGE TypeFamilies #-}
--- {-# LANGUAGE TypeApplications #-}
--- {-# LANGUAGE TypeOperators #-}
--- {-# LANGUAGE MultiParamTypeClasses #-}
--- {-# LANGUAGE FlexibleInstances #-}
--- {-# LANGUAGE FlexibleContexts #-}
--- {-# LANGUAGE UndecidableInstances #-}
--- {-# LANGUAGE TypeInType #-}
--- {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE RebindableSyntax #-}
+{-# LANGUAGE ApplicativeDo #-}
+
+{-# LANGUAGE PartialTypeSignatures #-}
+
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 
-module Control.Monad.Graph.Prelude where
+{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
--- import Control.Monad.Graph.Eff
-import Control.Monad.Graph.Class
+module Control.Monad.Graph.Prelude (
+    -- Functor
+    fmap, (<$), (<$>),
+    -- Applicative
+    pure, (<*>), (*>), (<*), 
+    -- Monad
+    return, (>>=), (=<<), (>>),
+    -- Extra operators:
+    (<**>), liftA, liftA2, liftA3,
+    join, liftM, liftM2, liftM3, liftM4, liftM5, ap,
+
+    mapM_, sequence_
+    ) where
 
 import Prelude hiding (
     -- Functor
@@ -28,104 +29,114 @@ import Prelude hiding (
     -- Applicative
     pure, (<*>), (*>), (<*), 
     -- Monad
-    return, (>>=), (=<<), (>>)
+    return, (>>=), (=<<), (>>),
+
+    mapM_, sequence_
     )
 
-fmap :: GFunctor f => (a -> b) -> f i a -> f (Fmapish i) b
-fmap = gmap
+import Control.Monad.Graph.Class
 
-(<$) :: GFunctor f => b -> f i a -> f (Fmapish i) b
-(<$) = gmap . const
+infixl 4  <$
+infixl 1  >>, >>=
+infixr 1  =<<
+infixl 4 <*>, <*, *>, <**>
 
-(<$>) :: GFunctor f => (a -> b) -> f i a -> f (Fmapish i) b
+fmap :: KFunctor f => (a -> b) -> f i a -> f (Fmap f i) b
+fmap = kmap
+
+(<$) :: KFunctor f => b -> f i a -> f (Fmap f i) b
+(<$) = kmap . const
+
+(<$>) :: KFunctor f => (a -> b) -> f i a -> f (Fmap f i) b
 (<$>) = fmap
 
-pure :: (GPointed f, PurishCxt i) => a -> f i a
-pure = greturn
+pure :: KPointed f => a -> f (Unit f) a
+pure = kreturn
 
-(<*>) :: (GApplicative f, ApCxt i j r) => f i (a -> b) -> f j a -> f r b
-(<*>) = gap
-infixl 4 <*>
+(<*>) :: (KApplicative f, _) => f i (a -> b) -> f j a -> f (Ap f i j) b
+(<*>) = kap
 
-(*>) :: (GApplicative f, ApCxt (Fmapish i) j r) => f i a -> f j b -> f r b
+(*>) :: (KApplicative f, _) => f i a -> f j b -> f (Ap f (Fmap f i) j) b
 a1 *> a2 = (id <$ a1) <*> a2
 
--- -- (<*) :: GraphEff u i a -> GraphEff u j b -> GraphEff u (Apish (Mapish i) j) a
--- (<*) :: (GApplicative f, PurishCxt i, ApCxt i j1 i1, ApCxt i1 j r) => f j1 b1 -> f j b -> f r b1
--- (<*) = liftA2 const
+(<*) :: (KApplicative f, _) => f j1 b1 -> f j b -> f (Ap f (Ap f (Unit f) j1) j) b1
+(<*) = liftA2 const
 
--- -- return :: a -> GraphEff u 'Empty a
--- return :: (GPointed f i, EmptyishC f i) => a -> f i a
-return = greturn
+return :: KPointed f => a -> f (Unit f) a
+return = kreturn
 
--- -- (=<<) :: (a -> GraphEff u j b) -> GraphEff u i a -> GraphEff u (Bindish i j) b
-(=<<) = gbind
+(=<<) :: (KMonad f, Inv f i j) => (a -> f j b) -> f i a -> f (Bind f i j) b
+(=<<) = flip (>>=)
 
--- -- -- (>>=) :: GraphEff u i a -> (a -> GraphEff u j b) -> GraphEff u (Bindish i j) b
-(>>=) = flip (=<<)
+(>>=) :: (KMonad f, Inv f i j) => f i a -> (a -> f j b) -> f (Bind f i j) b
+(>>=) = kbind
 
--- -- -- Simplified binding, what GHC.Base would like to do but cannot for backwards compatbility.
--- -- -- (>>) :: GraphEff u i a -> GraphEff u j b -> GraphEff u (Apish (Mapish i) j) b
+-- Simplified binding, what GHC.Base would like to do but cannot for backwards compatbility.
+(>>) :: (KApplicative f, _) => f i a -> f j b -> f (Ap f (Fmap f i) j) b
 (>>) = (*>)
 
--- -- -- With the above definitions, all types below are inferred.
+(<**>) :: (KApplicative f, _) => f j1 a -> f j (a -> b) -> f (Ap f (Ap f (Unit f) j1) j) b
+(<**>) = liftA2 (flip ($))
 
--- -- -- liftA :: (a -> b) -> GraphEff u j a -> GraphEff u (Mapish j) b
-liftA :: forall f i j r a b. (GApplicative f, ApCxt i j r, PurishCxt i) 
-      => (a -> b) -> f j a -> f r b
-liftA f a = pure @_ @i f <*> a
+liftA :: (KApplicative f, _) => (a -> b) -> f j a -> f (Ap f (Unit f) j) b
+liftA f a = pure f <*> a
 
--- -- -- liftA2 :: (a -> b -> c) -> GraphEff u i a -> GraphEff u j b -> GraphEff u (Apish (Mapish i) j) c
--- liftA2 :: (EmptyishC f i0, GApplicative f i, GApplicative f j) 
---        => (a1 -> a -> b) -> f i a1 -> f j a -> f (Apish f (Apish f i0 i) j) b
-liftA2 :: forall f i j j1 i1 r a1 a b. (GApplicative f, PurishCxt j1, ApCxt i j1 i1, ApCxt i1 j r)
-       => (a1 -> a -> b) -> f j1 a1 -> f j a -> f r b
-liftA2 f a b = pure @_ @i f <*> a <*> b
+liftA2 :: (KApplicative f, _) => (a1 -> a -> b) -> f j1 a1 -> f j a -> f (Ap f (Ap f (Unit f) j1) j) b
+liftA2 f a b = pure f <*> a <*> b
 
--- liftA3 :: (a -> b -> c -> d) -> GraphEff u i a -> GraphEff u j b -> GraphEff u k c -> GraphEff u (Apish (Apish (Mapish i) j) k) d
--- liftA3 :: forall f i j j1 j2 i1 i2 r a1 a2 a b. (GApplicative f, PurishCxt i, ApCxt i j2 i1, ApCxt i1 j1 i2, ApCxt i2 j r)
---        => (a2 -> a1 -> a -> b) -> f j2 a2 -> f j1 a1 -> f j a -> f r b
--- liftA3 f a b c = pure @_ @i1 f <*> a <*> b <*> c
+liftA3 :: (KApplicative f, _) => (a2 -> a1 -> a -> b) -> f j2 a2 -> f j1 a1 -> f j a -> f (Ap f (Ap f (Ap f (Unit f) j2) j1) j) b
+liftA3 f a b c = pure f <*> a <*> b <*> c
 
-liftM :: (GPointed f, Monad (f i), PurishCxt i)
-       => (t -> b)
-       -> f i t -> f i b
+join :: (KMonad f, Inv f i j) => f i (f j b) -> f (Bind f i j) b
+join x = x >>= id
+
+liftM :: (KApplicative f, _) => (t -> b) -> f j t -> f (Fmap f j) b
 liftM f m1              = do { x1 <- m1; return (f x1) }
 
-liftM2 :: (GPointed f, Monad (f i), PurishCxt i)
+liftM2 :: (KApplicative f, _)
        => (t1 -> t -> b)
-       -> f i t1 -> f i t -> f i b
+       -> f j1 t1
+       -> f j t
+       -> f (Ap f (Fmap f j1) j) b
 liftM2 f m1 m2          = do { x1 <- m1; x2 <- m2; return (f x1 x2) }
 
--- liftM3 :: (a1 -> a2 -> a3 -> r) -> GraphEff u i1 a1 -> GraphEff u i2 a2 -> GraphEff u i3 a3 -> GraphEff u (Apish (Apish (Mapish i1) i2) i3) r
-liftM3 :: (GPointed f, Monad (f i), PurishCxt i)
+liftM3 :: (KApplicative f, _)
        => (t2 -> t1 -> t -> b)
-       -> f i t2 -> f i t1 -> f i t -> f i b
+       -> f j2 t2
+       -> f j1 t1
+       -> f j t
+       -> f (Ap f (Ap f (Fmap f j2) j1) j) b
 liftM3 f m1 m2 m3       = do { x1 <- m1; x2 <- m2; x3 <- m3; return (f x1 x2 x3) }
 
-liftM4 :: (GPointed f, Monad (f i), PurishCxt i)
+liftM4 :: (KApplicative f, _)
        => (t3 -> t2 -> t1 -> t -> b)
-       -> f i t3 -> f i t2 -> f i t1 -> f i t -> f i b
+       -> f i t3
+       -> f j2 t2
+       -> f j1 t1
+       -> f j t
+       -> f (Ap f (Ap f (Ap f (Fmap f i) j2) j1) j) b
 liftM4 f m1 m2 m3 m4    = do { x1 <- m1; x2 <- m2; x3 <- m3; x4 <- m4; return (f x1 x2 x3 x4) }
 
-liftM5 :: (GPointed f, Monad (f i), PurishCxt i)
+liftM5 :: (KApplicative f, _) 
        => (t4 -> t3 -> t2 -> t1 -> t -> b)
-       -> f i t4 -> f i t3 -> f i t2 -> f i t1 -> f i t -> f i b
+       -> f i t4
+       -> f j3 t3
+       -> f j2 t2
+       -> f j1 t1
+       -> f j t
+       -> f (Ap f (Ap f (Ap f (Ap f (Fmap f i) j3) j2) j1) j) b
 liftM5 f m1 m2 m3 m4 m5 = do { x1 <- m1; x2 <- m2; x3 <- m3; x4 <- m4; x5 <- m5; return (f x1 x2 x3 x4 x5) }
 
-ap :: (GPointed f, Monad (f i), PurishCxt i) => f i (t -> b) -> f i t -> f i b
+ap :: (KApplicative f, Inv f (Fmap f i) j) => f i (t -> b) -> f j t -> f (Ap f (Fmap f i) j) b
 ap m1 m2 = do { x1 <- m1; x2 <- m2; return (x1 x2) }
-
 
 -- Recursive bindings may be impossible. This type is inferred, but not always satisfiable.
 -- We will need to implement our own folds and control flow.
--- E.g., with GraphEff: ApCxt (Mapish i) 'Empty => Mapish i != 'Empty 
--- mapM_bad :: (Apish (Mapish i) 'Empty ~ 'Empty, Foldable t) 
---          => (a1 -> GraphEff u i a) -> t a1 -> GraphEff u 'Empty ()
-mapM_ :: (GApplicative f, Foldable t, PurishCxt j, ApCxt (Fmapish i) j j)
-      => (a1 -> f i a) -> t a1 -> f j ()
+mapM_ :: (KApplicative f, Foldable t, Ap f (Fmap f i) (Unit f) ~ Unit f, _)
+      => (a1 -> f i a) -> t a1 -> f (Unit f) ()
 mapM_ f = foldr ((>>) . f) (return ())
 
 -- As above.
-sequence_Bad :: (GApplicative f, Foldable t, PurishCxt j, ApCxt (Fmapish i) j j) => t (f i a) -> f j ()
-sequence_Bad = foldr (>>) (return ())
+sequence_ :: (KApplicative f, Foldable t, Ap f (Fmap f i) (Unit f) ~ Unit f, _)
+          => t (f i a) -> f (Unit f) ()
+sequence_ = foldr (>>) (return ())
