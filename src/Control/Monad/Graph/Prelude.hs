@@ -5,6 +5,7 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- Needed for poly-kinded "f :: k -> * -> *"
 {-# LANGUAGE PolyKinds #-}
@@ -46,8 +47,8 @@ infixl 4 <*>, <*, *>, <**>
 fmap :: KFunctor f => (a -> b) -> f i a -> f (Fmap f i) b
 fmap = kmap
 
-(<$) :: KFunctor f => b -> f i a -> f (Fmap f i) b
-(<$) = kmap . const
+(<$) :: KFunctor f => b -> f i a -> f (Fconst f i) b
+(<$) = kconst
 
 (<$>) :: KFunctor f => (a -> b) -> f i a -> f (Fmap f i) b
 (<$>) = fmap
@@ -58,39 +59,39 @@ pure = kreturn
 (<*>) :: (KApplicative f, _) => f i (a -> b) -> f j a -> f (Apply f i j) b
 (<*>) = kap
 
-(*>) :: (KApplicative f, _) => f i a -> f j b -> f (Apply f (Fmap f i) j) b
-a1 *> a2 = (id <$ a1) <*> a2
+(*>) :: (KApplicative f, _) => f i a -> f j b -> f (Then f i j) b
+(*>)= kthen
 
-(<*) :: (KApplicative f, _) => f j1 b1 -> f j b -> f (Apply f (Apply f (Unit f) j1) j) b1
-(<*) = liftA2 const
+(<*) :: (KApplicative f, _) => f i a -> f j b -> f (But f i j) a
+(<*) = kbut
 
 return :: KPointed f => a -> f (Unit f) a
 return = kreturn
 
-(=<<) :: (KMonad f, Inv f i j) => (a -> f j b) -> f i a -> f (Bind f i j) b
-(=<<) = flip (>>=)
-
 (>>=) :: (KMonad f, Inv f i j) => f i a -> (a -> f j b) -> f (Bind f i j) b
 (>>=) = kbind
 
--- Simplified binding, what GHC.Base would like to do but cannot for backwards compatbility.
-(>>) :: (KApplicative f, _) => f i a -> f j b -> f (Apply f (Fmap f i) j) b
-(>>) = (*>)
+(=<<) :: (KMonad f, Inv f i j) => (a -> f j b) -> f i a -> f (Bind f i j) b
+(=<<) = flip (>>=)
 
-(<**>) :: (KApplicative f, _) => f j1 a -> f j (a -> b) -> f (Apply f (Apply f (Unit f) j1) j) b
+-- Simplified binding, what GHC.Base would like to do but cannot for backwards compatbility.
+(>>) :: (KApplicative f, _) => f i a -> f j b -> f (Then f i j) b
+(>>) = kthen
+
+(<**>) :: (KApplicative f, _) => f i1 a -> f i2 (a -> b) -> f (Apply f (Apply f (Unit f) i1) i2) b
 (<**>) = liftA2 (flip ($))
 
-liftA :: (KApplicative f, _) => (a -> b) -> f j a -> f (Apply f (Unit f) j) b
+liftA :: (KApplicative f, _) => (a -> b) -> f i1 a -> f (Apply f (Unit f) i1) b
 liftA f a = pure f <*> a
 
-liftA2 :: (KApplicative f, _) => (a1 -> a -> b) -> f j1 a1 -> f j a -> f (Apply f (Apply f (Unit f) j1) j) b
+liftA2 :: (KApplicative f, _) => (a1 -> a2 -> b) -> f i1 a1 -> f i2 a2 -> f (Apply f (Apply f (Unit f) i1) i2) b
 liftA2 f a b = pure f <*> a <*> b
 
-liftA3 :: (KApplicative f, _) => (a2 -> a1 -> a -> b) -> f j2 a2 -> f j1 a1 -> f j a -> f (Apply f (Apply f (Apply f (Unit f) j2) j1) j) b
+liftA3 :: (KApplicative f, _) => (a1 -> a2 -> a3 -> b) -> f i1 a1 -> f i2 a2 -> f i3 a3 -> f (Apply f (Apply f (Apply f (Unit f) i1) i2) i3) b
 liftA3 f a b c = pure f <*> a <*> b <*> c
 
-join :: (KMonad f, Inv f i j) => f i (f j b) -> f (Bind f i j) b
-join x = x >>= id
+join :: (KMonad f, Inv f i j) => f i (f j b) -> f (Join f i j) b
+join = kjoin
 
 liftM :: (KApplicative f, _) => (t -> b) -> f j t -> f (Fmap f j) b
 liftM f m1              = do { x1 <- m1; return (f x1) }
