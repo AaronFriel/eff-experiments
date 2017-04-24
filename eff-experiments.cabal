@@ -32,21 +32,21 @@ library
                      , Util
   build-depends:       base >= 4.7 && < 5
                     --  , eff  >= 0.1.0.0
-                     , mono-traversable
-                     , mono-traversable-instances
+                    --  , mono-traversable
+                    --  , mono-traversable-instances
                      , indexed
-                     , text
+                    --  , text
                      , ghc-prim
-                     , typelits-witnesses
-                     , indexed-do-notation
-                     , template-haskell
-                     , haskell-src-meta
+                    --  , typelits-witnesses
+                    --  , indexed-do-notation
+                    --  , template-haskell
+                    --  , haskell-src-meta
                      , singletons == 2.3
-                     , type-level-sets
-                     , cxmonad
-                     , deepseq
-                     , hvect
-                     , constraints
+                    --  , type-level-sets
+                    --  , cxmonad
+                    --  , deepseq
+                    --  , hvect
+                    --  , constraints
   default-language:    Haskell2010
 
 test-suite eff-experiments-test
@@ -69,7 +69,7 @@ benchmark eff-experiments-benchmark
   build-depends:       base
                      , eff-experiments
                      , indexed
-                     , indexed-do-notation
+                    --  , indexed-do-notation
                      , eff
                      , criterion
                      , mtl
