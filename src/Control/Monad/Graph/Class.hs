@@ -2,6 +2,7 @@
 {-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DefaultSignatures #-}
 
 -- Makes for nicer type families where Plus is reused.
 {-# LANGUAGE UndecidableInstances #-}
@@ -22,13 +23,25 @@ class Fmappable (f :: k -> * -> *) where
     type family Fmap (f :: k -> * -> *) (i :: k) :: k
     type instance Fmap f i = i
 
+    type family Fconst f (i :: k) :: k
+    type instance Fconst f i = Fmap f i
+
 class KEffect f => Applyable (f :: k -> * -> *) where
     type family Apply (f :: k -> * -> *) (i :: k) (j :: k) :: k
     type instance Apply f i j = Plus f i j
 
+    type family Then f (i :: k) (j :: k) :: k
+    type instance Then f i j = Apply f (Fconst f i) j
+
+    type family But f (i :: k) (j :: k) :: k
+    type instance But f i j = Apply f (Apply f (Unit f) i) j
+
 class KEffect f => Bindable (f :: k -> * -> *) where
     type family Bind (f :: k -> * -> *) (i :: k) (j :: k) :: k
     type instance Bind f i j = Plus f i j
+
+    type family Join (f :: k -> * -> *) (i :: k) (j :: k) :: k
+    type instance Join f i j = Bind f i j
 
 class KEffect f => KPointed (f :: k -> * -> *) where
     kreturn :: a -> f (Unit f) a
@@ -36,14 +49,33 @@ class KEffect f => KPointed (f :: k -> * -> *) where
 class KEffect f => KFunctor (f :: k -> * -> *) where
     kmap :: (a -> b) -> f i a -> f (Fmap f i) b
 
+    kconst :: a -> f i b -> f (Fconst f i) a
+    default kconst :: (Fconst f i ~ Fmap f i) => a -> f i b -> f (Fconst f i) a
+    kconst = kmap . const
+
 class (KFunctor f, KPointed f) => KApplicative (f :: k -> * -> *) where
     kap :: Inv f i j => f i (a -> b) -> f j a -> f (Apply f i j) b
+
+    -- *>
+    kthen :: Inv f i j => f i a -> f j b -> f (Then f i j) b
+    default kthen :: (Apply f (Fconst f i) j ~ Then f i j, Inv f (Fconst f i) j)
+                  => f i a -> f j b -> f (Apply f (Fconst f i) j) b
+    kthen a b = (id `kconst` a) `kap` b
+
+    -- <*
+    kbut :: Inv f i j => f i a -> f j b -> f (But f i j) a
+    default kbut :: (Apply f (Apply f (Unit f) i) j ~ But f i j, Inv f (Unit f) i, Inv f (Apply f (Unit f) i) j) 
+                 => f i a -> f j b -> f (Apply f (Apply f (Unit f) i) j) a
+    kbut a b = kreturn const `kap` a `kap` b
 
 class KApplicative f => KMonad (f :: k -> * -> *) where
     kbind :: Inv f i j => f i a -> (a -> f j b) -> f (Bind f i j) b
 
--- Wrapping a non-indexed type: 
+    kjoin :: (Inv f i j) => f i (f j b) -> f (Join f i j) b
+    default kjoin :: (Bind f i j ~ Join f i j, Inv f i j) => f i (f j b) -> f (Join f i j) b
+    kjoin x = x `kbind` id
 
+-- Wrapping a non-indexed type: 
 newtype WrappedM (m :: * -> *) (p :: ()) a where
     WrappedM :: m a -> WrappedM m p a
 
@@ -67,6 +99,8 @@ instance Functor m => KFunctor (WrappedM m) where
 
 instance Applicative m => KApplicative (WrappedM m) where
     kap (WrappedM m) (WrappedM k) = WrappedM $ m <*> k
+    kthen (WrappedM m) (WrappedM k) = WrappedM $ m *> k
+    kbut (WrappedM m) (WrappedM k) = WrappedM $ m <* k
 
 instance Monad m => KMonad (WrappedM m) where
     kbind (WrappedM m) k = WrappedM $ m >>= (\a -> (case k a of WrappedM k' -> k'))
@@ -87,7 +121,8 @@ instance KEffect (IxEff m :: CatArr i j -> * -> *) where
     type Plus (IxEff m) ('CatId     ) ('CArrow c d) = 'CArrow c d
 
 instance Fmappable (IxEff m)
-instance Applyable (IxEff m)
+instance Applyable (IxEff m) where
+    type But (IxEff m) i j = Plus (IxEff m) i j
 instance Bindable (IxEff m)
 
 type family FstArr (p :: CatArr i j) where
@@ -106,12 +141,13 @@ instance Functor m => KFunctor (IxEff m) where
 
 instance Applicative m => KApplicative (IxEff m) where
     kap (IxEff m) (IxEff k) = IxEff $ m <*> k
+    kthen (IxEff m) (IxEff k) = IxEff $ (m *> k)
+    kbut (IxEff m) (IxEff k) = IxEff $ (m <* k)
 
 instance Monad m => KMonad (IxEff m) where
     kbind (IxEff m) k = IxEff $ m >>= (\a -> (case k a of IxEff k' -> k'))
 
 -- Wrapped IxMonad from Control.Monad.Indexed
-
 newtype WrappedIx (m :: k -> k -> * -> *) (p :: CatArr k k) a = WrappedIx { unWix :: m (FstArr p) (SndArr p) a }
 
 instance KEffect (WrappedIx m) where
@@ -120,7 +156,9 @@ instance KEffect (WrappedIx m) where
     type Plus (WrappedIx m) i j  = 'CArrow (FstArr i) (SndArr j)  
 
 instance Fmappable (WrappedIx m)
-instance Applyable (WrappedIx m)
+instance Applyable (WrappedIx m) where
+    type Then (WrappedIx m) i j = Plus (WrappedIx m) i j
+    type But (WrappedIx m) i j = Plus (WrappedIx m) i j
 instance Bindable (WrappedIx m)
 
 instance IxPointed m => KPointed (WrappedIx m) where
@@ -131,6 +169,8 @@ instance IxFunctor m => KFunctor (WrappedIx m) where
 
 instance IxApplicative m => KApplicative (WrappedIx m) where
     kap (WrappedIx m) (WrappedIx k) = WrappedIx $ m `iap` k
+    kthen (WrappedIx m) (WrappedIx k) = WrappedIx $ (imap . const) id m `iap` k
+    kbut (WrappedIx m) (WrappedIx k) = WrappedIx $ ireturn const `iap` m `iap` k
 
 instance IxMonad m => KMonad (WrappedIx m) where
     kbind (WrappedIx m) k = WrappedIx $ (\a -> (case k a of WrappedIx k' -> k')) `ibind` m

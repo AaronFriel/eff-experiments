@@ -16,11 +16,11 @@ module Control.Monad.Graph.Eff where
 import Control.Monad.Graph.Class
 import Data.Kind (type (*))
 
-data Tree a = Empty | Do a | (Tree a) :<*> (Tree a) | Tree a :>>= BindTree a
+data Tree a = Empty | Do a | (Tree a) :<*> (Tree a) | Tree a :>>= Queue a
 infixl 1 :>>=
 infixl 4 :<*>
 
-data BindTree a = TLeaf (Tree a) | TNode (BindTree a) (BindTree a)  
+data Queue a = TLeaf (Tree a) | TNode (Queue a) (Queue a)  
 
 data Graph v = Graph {
     gpaths     :: [Tree v],
@@ -48,7 +48,7 @@ instance KEffect (GraphEff u) where
     type Plus (GraphEff u) i j = GraphBind i j
 
 instance Fmappable (GraphEff u) where
-    type Fmap  (GraphEff u) i   = GraphMap i
+    type Fmap    (GraphEff u) i   = GraphMap i
 
 instance Applyable (GraphEff u) where
     type Apply (GraphEff u) i j = GraphAp i j
@@ -103,6 +103,8 @@ instance KApplicative (GraphEff u) where
       B _ _ -> A (B u q) k
       A _ _ -> A (B u q) k
 
+    
+
 instance KMonad (GraphEff u) where
     (V x)    `kbind` k = k x
     (E u q)  `kbind` k = B (E u q) (tsingleton k)
@@ -110,7 +112,7 @@ instance KMonad (GraphEff u) where
     (B u q)  `kbind` k = B u (q |> k)
 
 -- type role FTCQueue representational phantom representational nominal
-data FTCQueue m (i :: BindTree Effect) a b where
+data FTCQueue m (i :: Queue Effect) a b where
         Leaf :: (a -> m i b) -> FTCQueue m (TLeaf i) a b
         Node :: FTCQueue m i a x -> FTCQueue m j x b -> FTCQueue m (TNode i j) a b
 
