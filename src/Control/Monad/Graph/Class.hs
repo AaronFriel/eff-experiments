@@ -59,13 +59,13 @@ class (KFunctor f, KPointed f) => KApplicative (f :: k -> * -> *) where
     -- *>
     kthen :: Inv f i j => f i a -> f j b -> f (Then f i j) b
     default kthen :: (Apply f (Fconst f i) j ~ Then f i j, Inv f (Fconst f i) j)
-                  => f i a -> f j b -> f (Apply f (Fconst f i) j) b
+                  => f i a -> f j b -> f (Then f i j) b
     kthen a b = (id `kconst` a) `kap` b
 
     -- <*
     kbut :: Inv f i j => f i a -> f j b -> f (But f i j) a
     default kbut :: (Apply f (Apply f (Unit f) i) j ~ But f i j, Inv f (Unit f) i, Inv f (Apply f (Unit f) i) j) 
-                 => f i a -> f j b -> f (Apply f (Apply f (Unit f) i) j) a
+                 => f i a -> f j b -> f (But f i j) a
     kbut a b = kreturn const `kap` a `kap` b
 
 class KApplicative f => KMonad (f :: k -> * -> *) where
@@ -103,7 +103,7 @@ instance Applicative m => KApplicative (WrappedM m) where
     kbut (WrappedM m) (WrappedM k) = WrappedM $ m <* k
 
 instance Monad m => KMonad (WrappedM m) where
-    kbind (WrappedM m) k = WrappedM $ m >>= (\a -> (case k a of WrappedM k' -> k'))
+    kbind (WrappedM m) k = WrappedM $ m >>= unM . k
 
 -- Wrapping an indexed type with two phantom parameters, parameters form a category.
 newtype IxEff (m :: * -> *) (p :: CatArr i j) (a :: *) = IxEff { unIx :: m a }
@@ -145,7 +145,7 @@ instance Applicative m => KApplicative (IxEff m) where
     kbut (IxEff m) (IxEff k) = IxEff $ (m <* k)
 
 instance Monad m => KMonad (IxEff m) where
-    kbind (IxEff m) k = IxEff $ m >>= (\a -> (case k a of IxEff k' -> k'))
+    kbind (IxEff m) k = IxEff $ m >>= unIx . k
 
 -- Wrapped IxMonad from Control.Monad.Indexed
 newtype WrappedIx (m :: k -> k -> * -> *) (p :: CatArr k k) a = WrappedIx { unWix :: m (FstArr p) (SndArr p) a }
@@ -173,4 +173,4 @@ instance IxApplicative m => KApplicative (WrappedIx m) where
     kbut (WrappedIx m) (WrappedIx k) = WrappedIx $ ireturn const `iap` m `iap` k
 
 instance IxMonad m => KMonad (WrappedIx m) where
-    kbind (WrappedIx m) k = WrappedIx $ (\a -> (case k a of WrappedIx k' -> k')) `ibind` m
+    kbind (WrappedIx m) k = WrappedIx $ (unWix . k) `ibind` m
