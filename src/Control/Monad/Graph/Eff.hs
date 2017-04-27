@@ -9,21 +9,26 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- {-# LANGUAGE TemplateHaskell #-}
+-- {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 
 module Control.Monad.Graph.Eff where
 
 import Control.Monad.Graph.Class
+-- import Data.Singletons.TH
 import Data.Kind (type (*))
 
-data Tree a = Empty | Do a | (Tree a) :<*> (Tree a) | Tree a :>>= Queue a
+data EffTree a = Pure | Do a | (EffTree a) :<*> (EffTree a) | EffTree a :>>= EffQueue a
+
+data EffQueue a = TLeaf (EffTree a) | TNode (EffQueue a) (EffQueue a)  
+
 infixl 1 :>>=
 infixl 4 :<*>
 
-data Queue a = TLeaf (Tree a) | TNode (Queue a) (Queue a)  
 
 data Graph v = Graph {
-    gpaths     :: [Tree v],
+    gpaths     :: [EffTree v],
     ghandled   :: [v]
 }
 
@@ -35,15 +40,15 @@ type family Output e = r
 
 type Arrs u i a b = FTCQueue (GraphEff u) i a b
 
-data GraphEff (u :: Graph Effect) (i :: Tree Effect) b where
-    V :: b -> GraphEff u Empty b
+data GraphEff (u :: Graph Effect) (i :: EffTree Effect) b where
+    V :: b -> GraphEff u Pure b
     E :: ctor ->  (Output ctor -> b) -> GraphEff u (Do ctor) b
     -- TODO: Replace with alternate Arrs
     A :: GraphEff u i (a -> b) -> GraphEff u j a -> GraphEff u (i :<*> j) b
     B :: GraphEff u i a ->  Arrs u j a b -> GraphEff u (i :>>= j) b
 
 instance KEffect (GraphEff u) where
-    type Unit (GraphEff u) = 'Empty
+    type Unit (GraphEff u) = 'Pure
     type Inv  (GraphEff u) i j = ()
     type Plus (GraphEff u) i j = GraphBind i j
 
@@ -58,21 +63,21 @@ instance Bindable (GraphEff u) where
 
 
 type family GraphMap (i :: k) :: k where
-    GraphMap      Empty  = Empty
+    GraphMap      Pure  = Pure
     GraphMap      (Do i) = Do i 
     GraphMap  (i :<*> j) = (GraphMap i) :<*> j
-    GraphMap  (i :>>= j) = i :>>= (TNode j (TLeaf Empty))
+    GraphMap  (i :>>= j) = i :>>= (TNode j (TLeaf Pure))
 
 type family GraphAp (i :: k) (j :: k) :: k where
-    GraphAp      Empty       k = GraphMap k
-    GraphAp  (i :<*> j)  Empty = (GraphMap i) :<*> j
-    GraphAp  (i :>>= j)  Empty = i :>>= (TNode j (TLeaf Empty))
-    GraphAp          i   Empty = i
+    GraphAp      Pure       k = GraphMap k
+    GraphAp  (i :<*> j)  Pure = (GraphMap i) :<*> j
+    GraphAp  (i :>>= j)  Pure = i :>>= (TNode j (TLeaf Pure))
+    GraphAp          i   Pure = i
     GraphAp          i       j = i :<*> j
 
 type family GraphBind (i :: k) (j :: k) :: k where
-    GraphBind        Empty  Empty =  Empty
-    GraphBind        Empty      j = j
+    GraphBind        Pure  Pure =  Pure
+    GraphBind        Pure      j = j
     GraphBind  (x :>>= xs)      j = x :>>= (TNode xs (TLeaf j))
     GraphBind           i       j = i :>>= TLeaf j
 
@@ -112,12 +117,12 @@ instance KMonad (GraphEff u) where
     (B u q)  `kbind` k = B u (q |> k)
 
 -- type role FTCQueue representational phantom representational nominal
-data FTCQueue m (i :: Queue Effect) a b where
+data FTCQueue m (i :: EffQueue Effect) a b where
         Leaf :: (a -> m i b) -> FTCQueue m (TLeaf i) a b
         Node :: FTCQueue m i a x -> FTCQueue m j x b -> FTCQueue m (TNode i j) a b
 
 {-# INLINE tfmap #-}
-tfmap :: (a -> m Empty b) -> FTCQueue m (TLeaf Empty) a b
+tfmap :: (a -> m Pure b) -> FTCQueue m (TLeaf Pure) a b
 tfmap r = Leaf r
 
 {-# INLINE tsingleton #-}

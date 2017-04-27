@@ -3,9 +3,9 @@ packages:
   # - location: ./dep/eff
   #   extra-dep: true
   - location: ./dep/indexed
-    extra-dep: false
-  - location: ./dep/deepseq
     extra-dep: true
+  # - location: ./dep/deepseq
+  #   extra-dep: true
   - location: 
       git: git@github.com:goldfirere/singletons.git
       commit: f6516af95f2421f9509abfb992523d430e00b6ad

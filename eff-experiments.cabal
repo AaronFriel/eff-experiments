@@ -15,22 +15,26 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Data.Iota.Eff1
-                     , Data.Iota.FTCQueue1
-                     , Data.Iota.OpenUnion51
-                     , Data.Iota.Strict.Eff1
-                     , Data.Iota.Strict.FTCQueue1
-                     , Data.Iota.Strict.OpenUnion51
-                     , Data.Iota.Unified.Eff1
-                     , Data.Iota.Unified.Eff2
-                     , Data.Iota.Unified.FTCQueue1
-                     , Data.Iota.Unified.OpenUnion51
-                     , Data.Iota.Tagged.Eff1
-                     , Data.Iota.Tagged.FTCQueue1
-                     , Data.Iota.Tagged.OpenUnion51
-                     , Control.Monad.Graph
-                     , Util
-  build-depends:       base >= 4.7 && < 5
+  exposed-modules:     
+                       Control.Monad.Graph.Prelude
+                     , Control.Monad.Graph.Class
+                     , Control.Monad.Graph.Eff
+                     , Control.Monad.Graph.Playground
+                    --  , Data.Iota.Eff1
+                    --  , Data.Iota.FTCQueue1
+                    --  , Data.Iota.OpenUnion51
+                    --  , Data.Iota.Strict.Eff1
+                    --  , Data.Iota.Strict.FTCQueue1
+                    --  , Data.Iota.Strict.OpenUnion51
+                    --  , Data.Iota.Unified.Eff1
+                    --  , Data.Iota.Unified.Eff2
+                    --  , Data.Iota.Unified.FTCQueue1
+                    --  , Data.Iota.Unified.OpenUnion51
+                    --  , Data.Iota.Tagged.Eff1
+                    --  , Data.Iota.Tagged.FTCQueue1
+                    --  , Data.Iota.Tagged.OpenUnion51
+                    --  , Util
+  build-depends:       base >= 4.7
                     --  , eff  >= 0.1.0.0
                     --  , mono-traversable
                     --  , mono-traversable-instances
@@ -42,6 +46,7 @@ library
                     --  , template-haskell
                     --  , haskell-src-meta
                      , singletons == 2.3
+                     , lens
                     --  , type-level-sets
                     --  , cxmonad
                     --  , deepseq

@@ -1,26 +1,30 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE ApplicativeDo #-}
-{-# LANGUAGE GADTs #-}
+
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeInType #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+
+{-# LANGUAGE FlexibleContexts #-}
+
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE LiberalTypeSynonyms #-}
-{-# LANGUAGE TypeFamilyDependencies #-}
-{-# LANGUAGE FunctionalDependencies #-}
+
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE TypeFamilies #-}
+
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
+
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 {-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors -Wno-missing-signatures -Wno-unused-imports -Wno-type-defaults -Wno-partial-type-signatures #-}
 
@@ -36,10 +40,11 @@ import GHC.TypeLits hiding (type (*))
 import Data.Kind (type (*))
 import Data.Proxy
 import Data.Singletons.Prelude
--- import Data.Singletons.Prelude.Bool
-import Data.Singletons.TypeRepStar
+import Data.Singletons.Prelude.Bool
+-- import Data.Singletons.TypeRepStar
 import Data.Singletons.Decide
 import Unsafe.Coerce
+import Control.Lens hiding ((%~))
 
 -- import Debug.Trace
 
@@ -66,13 +71,13 @@ fmap = G.fmap
 (<$>) :: (a -> b) -> GraphEff u i a -> GraphEff u (GraphMap i) b
 (<$>) = G.fmap
 
-pure :: a -> GraphEff u 'Empty a
+pure :: a -> GraphEff u 'Pure a
 pure = G.pure
 
 (<*>) :: GraphEff u i (a -> b) -> GraphEff u j a -> GraphEff u (GraphAp i j) b
 (<*>) = (G.<*>)
 
-return :: a -> GraphEff u 'Empty a
+return :: a -> GraphEff u 'Pure a
 return = G.pure
 
 (>>=) :: GraphEff u i a -> (a -> GraphEff u j b) -> GraphEff u (GraphBind i j) b
@@ -125,20 +130,20 @@ ap m1 m2 = do { x1 <- m1; x2 <- m2; return (x1 x2) }
 
 -- Recursive bindings are (naively) impossible. This type is inferred, but unsatisfiable.
 -- We will need to implement our own folds and control flow.
--- GraphAp (GraphMap i) 'Empty => GraphMap i != 'Empty 
-mapM_bad :: (GraphAp (GraphMap i) 'Empty ~ 'Empty, Foldable t)
-      => (a1 -> GraphEff u i a) -> t a1 -> GraphEff u 'Empty ()
+-- GraphAp (GraphMap i) 'Pure => GraphMap i != 'Pure 
+mapM_bad :: (GraphAp (GraphMap i) 'Pure ~ 'Pure, Foldable t)
+      => (a1 -> GraphEff u i a) -> t a1 -> GraphEff u 'Pure ()
 mapM_bad f = foldr ((>>) . f) (return ())
 
 -- We can fix the types to allow recursive pure folds:
-mapM_pure :: (Foldable t) => (a1 -> GraphEff u 'Empty a) -> t a1 -> GraphEff u 'Empty ()
+mapM_pure :: (Foldable t) => (a1 -> GraphEff u 'Pure a) -> t a1 -> GraphEff u 'Pure ()
 mapM_pure f = foldr ((>>) . f) (return ())
 
 -- As above.
-sequence_Bad :: (GraphAp (GraphMap i) 'Empty ~ 'Empty, Foldable t) => t (GraphEff u i a) -> GraphEff u 'Empty ()
+sequence_Bad :: (GraphAp (GraphMap i) 'Pure ~ 'Pure, Foldable t) => t (GraphEff u i a) -> GraphEff u 'Pure ()
 sequence_Bad = foldr (>>) (return ())
 
-sequence_Pure :: (Foldable t) => t (GraphEff u 'Empty a) -> GraphEff u 'Empty ()
+sequence_Pure :: (Foldable t) => t (GraphEff u 'Pure a) -> GraphEff u 'Pure ()
 sequence_Pure = foldr (>>) (return ())
 
 {-       ######## ######## ######## ########  ######  ########  ######  
@@ -181,7 +186,7 @@ type family HasEffectBindTree i e :: Constraint where
 prepare :: GraphEff ('Graph '[] '[]) i a -> GraphEff ('Graph '[] '[]) i a
 prepare a = a
 
-type EmptyU' = 'Graph '[] '[]
+type NilU' = 'Graph '[] '[]
 
 data Reader e where
     Ask :: Reader e
@@ -221,20 +226,20 @@ type instance Output (Call i a) = a
 -- Type is inferred.
 -- t1 :: GraphEff u ('Aps ('Aps ('Do (Reader Int)) ('Do (Reader Float))) ('Do (Reader String))) (Int, Float, String)
 t1 :: GraphEff U (('Do (Reader Int) ':<*> 'Do (Reader Float)) ':<*> 'Do (Reader String)) (Int, Float, String)
-t1 = simple $ do
+t1 = simpleEff $ do
     a <- ask @Int
     b <- ask @Float
     c <- ask @String
     return (a, b, c)
 
 t2 :: GraphEff U ('Do (Reader Int) ':>>= 'TLeaf ('Do (Writer String))) Int
-t2 = simple $ do
+t2 = simpleEff $ do
     a <- ask @Int
     tell (show a)
     return (a + 1)
 
-simple :: GraphEff U i a -> GraphEff U i a
-simple a = a
+simpleEff :: GraphEff U i a -> GraphEff U i a
+simpleEff a = a
 
 auto :: ((GraphEff u i a -> GraphEff u ('Do (Call 0 a)) a) -> GraphEff u i a) -> GraphEff u i a
 auto m = m undefined
@@ -244,195 +249,90 @@ tloop = auto $ \cc -> do
     tell "Foobar"
     cc tloop
 
-type family TDecomp i e where
-    TDecomp 'Empty      e = ()
-    TDecomp (i ':>>= j) e = Either (Decomp i e :~: 'False)  (i :~: ('Do e))
-    TDecomp (i ':<*> j) e = Either (Decomp j e :~: 'False)  (j :~: ('Do e))
-    TDecomp i           e = Either (Decomp i e :~: 'False)  (i :~: ('Do e))
-    -- TDecomp (i ':<*> j) e = ( Either (Decomp i e :~: 'False)      (i :~: ('Do e))
-    --                         , Either (Decomp i e :~: 'False)      (i :~: ('Do e))
-    --                         )
+data HVect (ts :: [*]) where
+    HNil  :: HVect '[]
+    (:&:) :: !t -> !(HVect ts) -> HVect (t ': ts)
 
-type family Decomp i e where
-    Decomp ('Do e) e     = 'True
-    Decomp (i ':>>= j) e = Decomp i e
-    Decomp (i ':<*> j) e = Decomp i e
-    Decomp 'Empty      _ = 'False
-    Decomp _           _ = 'False
+newtype Tagged (t :: *) where Tagged :: TagData t -> Tagged t
 
-decompE :: forall e u i a. _
-       => GraphEff u i a
-       -> Either (Decomp i e :~: 'False) (i :~: 'Do e)
-decompE m = case STrue %~ sing @Bool @(Decomp i e) of
-    Proved _ -> Right $ unsafeCoerce Refl
-    _ -> Left $ unsafeCoerce Refl
+instance Show (TagData t) => Show (Tagged t) where
+    show (Tagged a) = show a
 
-decompB :: forall e u i j a. _
-       => GraphEff u (i :>>= j) a
-       -> Either (Decomp (i :>>= j) e :~: 'False) (Decomp (i :>>= j) e :~: 'True, (i :>>= j) :~: ('Do e :>>= j))
-decompB m = case STrue %~ sing @Bool @(Decomp (i :>>= j) e) of
-    Proved _ -> Right $ (unsafeCoerce Refl, unsafeCoerce Refl)
-    _ -> Left $ unsafeCoerce Refl
+head :: HVect (t ': ts) -> t
+head (a :&: b) = a
 
-decompA :: forall e u i j a. _
-       => GraphEff u (i :<*> j) a
-       -> Either (Decomp (i :<*> j) e :~: 'False) (Decomp (i :<*> j) e :~: 'True, (i :<*> j) :~: (i :<*> 'Do e))
-decompA m = case STrue %~ sing @Bool @(Decomp (i :<*> j) e) of
-    Proved _ -> Right $ (unsafeCoerce Refl, unsafeCoerce Refl)
-    _ -> Left $ unsafeCoerce Refl
+class HasTag t ts where
+    getVec :: HVect ts -> TagData t
+    putVec :: TagData t -> HVect ts -> HVect ts
+    mutVec :: (TagData t -> TagData t) -> HVect ts -> HVect ts
 
-type WriterOutput o a = (a, [o])
+instance {-# OVERLAPPING #-} HasTag t (Tagged t ': xs) where
+    getVec   ((Tagged a) :&:  _) = a
+    putVec a (        _  :&: xs) = (Tagged a) :&: xs
+    mutVec f ((Tagged a) :&: xs) = (Tagged $ f a) :&: xs
 
-type family RunSimple' g e d o where
-    RunSimple' (GraphEff u         'Empty     a) e       _ o = GraphEff (RunEffect u '[e]) 'Empty (a, o)
-    RunSimple' (GraphEff u  (         'Do e ) a) e   'True o = GraphEff (RunEffect u '[e]) 'Empty (a, o)
-    RunSimple' (GraphEff u  (         'Do x ) a) e  'False o = GraphEff (RunEffect u '[e]) ('Do x) (a, o)
-    RunSimple' (GraphEff u  ( i ':>>=   j   ) a) e   'True o = (GraphEff u (FViewL j) a, o)
-    RunSimple' (GraphEff u  ( i ':>>=   j   ) a) e  'False o = GraphEff (RunEffect u '[e]) (i :>>= j) (a, o)
-    RunSimple' (GraphEff u  ( i ':<*> 'Do e ) a) e   'True o = (GraphEff u i a, o)
-    -- RunSimple' (GraphEff u i a) e         decomp     = GraphEff (RunEffect u '[e]) i
+instance {-# OVERLAPPABLE #-} HasTag t xs => HasTag t (Tagged t1 ': xs) where
+    getVec   (a :&: xs) = getVec @t xs
+    putVec a (b :&: xs) = b :&: putVec @t a xs 
+    mutVec f (b :&: xs) = b :&: mutVec @t f xs
 
-data TreeLens e = Current e | Other e
+type family TagData (effect :: *) :: *
 
-type family FocusTree (t :: Tree Effect) e :: (Tree (TreeLens Effect)) where
-    FocusTree    'Empty  e = 'Empty
-    FocusTree (   'Do e) e = 'Do (Current e)
-    FocusTree (   'Do x) e = 'Do (Other x)
-    FocusTree (i :>>= j) e = (FocusTree i e) :>>= (FocusQueue j e)
-    FocusTree (i :<*> j) e = (FocusTree i e) :<*> (FocusTree j e)
+type instance TagData (Writer a) = [a]
+type instance TagData (Reader e) = Output (Reader e)
 
-type family FocusQueue (t :: Queue Effect) e :: (Queue (TreeLens Effect)) where
-    FocusQueue  ('TLeaf r)     e = 'TLeaf (FocusTree r e)
-    FocusQueue  ('TNode t1 t2) e = 'TNode (FocusQueue t1 e) (FocusQueue t2 e)
+mkTag :: forall effect. TagData effect -> Tagged effect
+mkTag = Tagged
 
-type family UnfocusTree (t :: Tree (TreeLens Effect)) :: (Tree Effect) where
-    UnfocusTree    'Empty  = 'Empty
-    UnfocusTree (   'Do (Current e) ) = 'Do e
-    UnfocusTree (   'Do (  Other e) ) = 'Do e
-    UnfocusTree (i :>>= j) = UnfocusTree i :>>= UnfocusQueue j
-    UnfocusTree (i :<*> j) = UnfocusTree i :<*> UnfocusTree j
+testVec = mkTag @(Writer String) ["Foobar"] :&: HNil
 
-type family UnfocusQueue (t :: Queue (TreeLens Effect)) :: (Queue Effect) where
-    UnfocusQueue  ('TLeaf r)     = 'TLeaf (UnfocusTree r)
-    UnfocusQueue  ('TNode t1 t2) = 'TNode (UnfocusQueue t1) (UnfocusQueue t2)
+testGetter = getVec @(Writer String)
 
-type family RunSimple g e o where
-    RunSimple (GraphEff u i a) e o = RunSimple' (GraphEff u i a) e (Decomp i e) o
+testVecGet = testGetter testVec
 
-t :: a -> Void
-t _ = undefined
+class HasAlg e es where
+    getAlg :: HVect es -> EffectAlgebra' e
 
--- pattern PV :: (i ~ 'Empty) => b -> GraphEff u i b
--- pattern PV x <- V x
+instance {-# OVERLAPPING #-} HasAlg e (EffectAlgebra' e ': xs) where
+    getAlg (a :&:  _) = a
 
--- pattern PE :: (i ~ 'Do e) => e -> (Output e -> b) -> GraphEff u i b
--- pattern PE u q <- E u q
+instance {-# OVERLAPPABLE #-} HasAlg e es => HasAlg e (EffectAlgebra' e' ': es) where
+    getAlg (a :&: xs) = getAlg @e xs
 
--- type family DecompResult i e where
---     DecompResult (GraphEff u ('Do e) e) = PE
-data HTrue; data HFalse;
+type EffectAlgebra effect = forall s b. HasTag effect s => effect -> (Output effect -> b) -> (HVect s -> (b, HVect s))
 
-class TypeCast a b | a -> b
-instance TypeCast a a
+newtype EffectAlgebra' effect where EffectAlgebra' :: EffectAlgebra effect -> EffectAlgebra' effect
 
-class TypeEq a b c | a b -> c
-instance TypeEq x x HTrue
-instance (TypeCast HFalse b) => TypeEq x y b
+-- algWriter :: forall o s b. HasTag (Writer o) s => (Writer o) -> (Output (Writer o) -> b) -> (HVect s -> (b, HVect s))
+algWriter :: forall o. EffectAlgebra (Writer o)
+algWriter (Tell o') q = \s -> (q (), mutVec @(Writer o) (o' :) s)
 
-type family DecompResult u i e a = r where
-    DecompResult u 'Empty  e a = a
-    DecompResult u ('Do e) e a = (e, (Output e -> a), GraphEff u ('Do e) a)
-    DecompResult u ('Do x) e a = GraphEff u ('Do x) a
-    DecompResult u (i :>>= j) e a = GraphEff u (i :>>= j) a
-    DecompResult u (i :<*> j) e a = GraphEff u (i :<*> j) a
+algReader :: forall e. EffectAlgebra (Reader e)
+algReader (Ask) q = \s -> (q (getVec @(Reader e) s), s)
 
--- class Decomp' i where
---     decomp' :: GraphEff u i a -> DecompResult u i e a
+genWriter :: HVect ts -> HVect (Tagged (Writer o) ': ts)
+genWriter = (Tagged [] :&:)
 
--- instance Decomp' i 
+genReader :: e -> HVect ts -> HVect (Tagged (Reader e) ': ts)
+genReader e = (Tagged e :&:)
 
--- instance Decomp 
+genInit :: HVect '[]
+genInit = HNil
 
--- data DecompEff (e :: Effect) (u :: Graph Effect) (i :: Tree (TreeLens Effect)) b where
---     DV :: b -> DecompEff e u Empty b
-    -- DE :: ctor v ->  (v -> b) -> DecompEff e u (FocusTree (Do v) e) b
-    -- TODO: Replace with alternate Arrs
-    -- DA :: GraphEff u i (a -> b) -> GraphEff u j a -> DecompEff e u (FocusTree (i :<*> j) e) b
-    -- DB :: GraphEff u i a ->  Arrs u j a b -> DecompEff e u (FocusTree (i :>>= j) e) b
+class StepEffect i j e where
+    step :: (HasTag e ts, HasAlg e algs) => HVect ts -> HVect algs -> GraphEff u i a -> GraphEff u j a
 
--- focus :: forall e u i a. GraphEff u i a -> DecompEff e u (FocusTree i e) a
--- focus = unsafeCoerce
+instance StepEffect 'Pure 'Pure e where
+    step _ _ = id
 
--- refocus :: forall e e' u i a. DecompEff e' u i a -> DecompEff e u (FocusTree (UnfocusTree i) e) a
--- refocus = unsafeCoerce 
+instance StepEffect ('Do e) 'Pure e where
+    step ts algs (E u q) = 
+        let (EffectAlgebra' alg) = getAlg @e algs
+        in V . fst $ ((alg u q) ts)
 
--- refocus :: forall e u i a. DecompEff e' u i a -> DecompEff e u (FocusTree i e) a
--- refocus = unsafeCoerce 
+instance (FViewL j ~ r) => StepEffect ('Do e :>>= j) r e where
+    step ts algs (B (E u f) q) = 
+        let (EffectAlgebra' alg) = getAlg @e algs
+        in case tviewl q of 
+            TOne q' -> let r = fst $ (alg u f) ts in q' r
 
--- class RunWriter t where
-
--- class RunWriter' t bool where
---     runWriter'' :: 
-
--- runWriter :: forall o u i a. SingI (Decomp i (Writer o)) 
---           => GraphEff u i a
---           -> [o]
---           -> RunSimple (GraphEff u i a) (Writer o) [o] -- (RunEffect u '[ Writer o ]) i (a, [o])
--- runWriter m o = case m of
---     (V x)   -> V (x, o)
---     -- (CanDecomp u q) -> undefined
---     (E u q) -> case (decomp' @(Writer o) m) of
---         (u, q) -> _ u q
---     -- (E u q) -> case (decompE @(Writer o) m, u) of
---     --     (Right Refl, Tell o') -> V (q (), o' : o)
---     --     -- (Left Refl,  _      ) -> fmap (\r -> (r, o)) (E u q)
---     (B u q) -> case (decompB @(Writer o) m, u) of
---         (Right (Refl, Refl), E (Tell o') q') -> case tviewl $ q of
---             TOne f -> (f (q' ()), o' : o)
---         (Left Refl, _) -> error "Bad branch"
---     -- (A a m@(E u q)) -> case runWriter m o of
---     --     foo -> _ foo
---     -- (A a as) -> case (decompB @(Writer o) m, u) of
---     --     (Right (Refl, Refl), E (Tell o') q') -> case tviewl $ q of
---     --         TOne f -> (f (q' ()), o' : o)
---     --     (Left Refl, _) -> error "Bad branch"
-
-
--- twr m = run $ flip runWriter ["World!"] $ m
-
--- tw1 = pure "Hello, "
--- trw1 = twr tw1
--- tw2 = tell "Hello, " >>= (const $ V '!')
--- trw2 = run $ uncurry runWriter $ flip runWriter ["World!"] $ tw2
-
--- tw3 = tell "Beautiful, " >>= \_ -> tell "Hello " >>= \_ -> return 42
--- trw3 = run $ uncurry runWriter $ uncurry runWriter $ flip runWriter ["World!"] $ tw3
-
--- tw4 = tell "Beautiful, " >> tell "Hello " >> ask >>= return
--- -- runReader :: GraphEff u i a -> e -> GraphEff (RunEffect u '[ Reader e ]) i a
--- -- runReader m e = _ m e
-
--- run :: GraphEff u 'Empty a -> a
--- run (V a) = a
-
--- {- Note [liftM Types]
--- ~~~~~~~~~~~~~~~~~~~~~
--- The types for liftM, liftMn are inferred with or without ApplicativeDo, but the
--- types change because of the second type parameter to GraphEff changing depending
--- on the operations performed (Functor vs Applicative vs Monad).
-
--- With ApplicativeDo, liftM becomes goes from:
---   liftf m1 = { x1 <- m1; return (f x1) }
--- to:
---   liftf m1 = fmap f m1
-
--- Here are the types inferred without ApplicativeDo:
-
--- liftM :: (t -> b) -> GraphEff u i t -> GraphEff u (GraphBind i 'Empty) b
--- liftM2 :: (t1 -> t -> b) -> GraphEff u i1 t1 -> GraphEff u i t -> GraphEff u (GraphBind i1 (GraphBind i 'Empty)) b
--- liftM3 :: (t2 -> t1 -> t -> b) -> GraphEff u i2 t2 -> GraphEff u i1 t1 -> GraphEff u i t -> GraphEff u (GraphBind i2 (GraphBind i1 (GraphBind i 'Empty))) b
--- liftM4 :: (t3 -> t2 -> t1 -> t -> b) -> GraphEff u i3 t3 -> GraphEff u i2 t2 -> GraphEff u i1 t1 -> GraphEff u i t -> GraphEff u (GraphBind i3 (GraphBind i2 (GraphBind i1 (GraphBind i 'Empty)))) b
--- liftM5 :: (t4 -> t3 -> t2 -> t1 -> t -> b) -> GraphEff u i4 t4 -> GraphEff u i3 t3 -> GraphEff u i2 t2 -> GraphEff u i1 t1 -> GraphEff u i t -> GraphEff u (GraphBind i4 (GraphBind i3 (GraphBind i2 (GraphBind i1 (GraphBind i 'Empty))))) b
--- ap :: GraphEff u j (a -> b) -> GraphEff u i a -> GraphEff u (GraphBind j (GraphBind i 'Empty)) b
-
--- -}
