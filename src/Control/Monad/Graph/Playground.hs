@@ -26,6 +26,10 @@
 
 {-# LANGUAGE PartialTypeSignatures #-}
 
+{-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE NoMonoLocalBinds #-}
+{-# LANGUAGE InstanceSigs #-}
+
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors -Wno-missing-signatures -Wno-unused-imports -Wno-type-defaults -Wno-partial-type-signatures #-}
 
 module Control.Monad.Graph.Playground where
@@ -44,7 +48,7 @@ import Data.Singletons.Prelude.Bool
 -- import Data.Singletons.TypeRepStar
 import Data.Singletons.Decide
 import Unsafe.Coerce
-import Control.Lens hiding ((%~))
+import Control.Lens hiding ((%~), (:<))
 
 -- import Debug.Trace
 
@@ -82,6 +86,8 @@ return = G.pure
 
 (>>=) :: GraphEff u i a -> (a -> GraphEff u j b) -> GraphEff u (GraphBind i j) b
 (>>=) = (G.>>=)
+
+join = G.join
 
 -- With the above definitions, all types below are inferred.
 liftA :: (a -> b) -> GraphEff u j a -> GraphEff u (GraphMap j) b
@@ -205,7 +211,7 @@ tell :: o -> GraphEff u ('Do (Writer o)) ()
 tell = send . Tell
 
 data Get s = Get
-data Put s = Put !s
+newtype Put s where Put :: s -> Put s
 
 get :: forall e u. GraphEff u ('Do (Get e)) e
 get = send Get
@@ -253,18 +259,26 @@ data HVect (ts :: [*]) where
     HNil  :: HVect '[]
     (:&:) :: !t -> !(HVect ts) -> HVect (t ': ts)
 
+infixr 9 :&:
+
 newtype Tagged (t :: *) where Tagged :: TagData t -> Tagged t
 
 instance Show (TagData t) => Show (Tagged t) where
     show (Tagged a) = show a
 
+instance Show (HVect '[]) where
+    show _ = "HNil"
+
+instance (Show t, Show (HVect ts)) => Show (HVect (t ': ts)) where
+    show (t :&: ts) = show t ++ " :&: " ++ show ts
+
 head :: HVect (t ': ts) -> t
 head (a :&: b) = a
 
 class HasTag t ts where
-    getVec :: HVect ts -> TagData t
-    putVec :: TagData t -> HVect ts -> HVect ts
-    mutVec :: (TagData t -> TagData t) -> HVect ts -> HVect ts
+    getVec :: HVect ts -> TagData (t)
+    putVec :: TagData (t) -> HVect ts -> HVect ts
+    mutVec :: (TagData (t) -> TagData (t)) -> HVect ts -> HVect ts
 
 instance {-# OVERLAPPING #-} HasTag t (Tagged t ': xs) where
     getVec   ((Tagged a) :&:  _) = a
@@ -276,10 +290,21 @@ instance {-# OVERLAPPABLE #-} HasTag t xs => HasTag t (Tagged t1 ': xs) where
     putVec a (b :&: xs) = b :&: putVec @t a xs 
     mutVec f (b :&: xs) = b :&: mutVec @t f xs
 
+data State s
+
+type family TagOf (effect :: *) :: *
+type instance TagOf (Reader e) = Reader e
+type instance TagOf (Writer o) = Writer o
+type instance TagOf (State s) = State s
+type instance TagOf (Put s) = State s
+type instance TagOf (Get s) = State s
+
 type family TagData (effect :: *) :: *
 
 type instance TagData (Writer a) = [a]
 type instance TagData (Reader e) = Output (Reader e)
+type instance TagData (Reader e) = Output (Reader e)
+type instance TagData (State s) = Output (Get s)
 
 mkTag :: forall effect. TagData effect -> Tagged effect
 mkTag = Tagged
@@ -291,17 +316,17 @@ testGetter = getVec @(Writer String)
 testVecGet = testGetter testVec
 
 class HasAlg e es where
-    getAlg :: HVect es -> EffectAlgebra' e
+    getAlg :: HVect es -> Alg e
 
-instance {-# OVERLAPPING #-} HasAlg e (EffectAlgebra' e ': xs) where
+instance {-# OVERLAPPING #-} HasAlg e (Alg e ': xs) where
     getAlg (a :&:  _) = a
 
-instance {-# OVERLAPPABLE #-} HasAlg e es => HasAlg e (EffectAlgebra' e' ': es) where
+instance {-# OVERLAPPABLE #-} HasAlg e es => HasAlg e (Alg e' ': es) where
     getAlg (a :&: xs) = getAlg @e xs
 
-type EffectAlgebra effect = forall s b. HasTag effect s => effect -> (Output effect -> b) -> (HVect s -> (b, HVect s))
+type EffectAlgebra effect = forall s b. HasTag (TagOf effect) s => effect -> (Output effect -> b) -> (HVect s -> (b, HVect s))
 
-newtype EffectAlgebra' effect where EffectAlgebra' :: EffectAlgebra effect -> EffectAlgebra' effect
+newtype Alg effect where Alg :: EffectAlgebra effect -> Alg effect
 
 -- algWriter :: forall o s b. HasTag (Writer o) s => (Writer o) -> (Output (Writer o) -> b) -> (HVect s -> (b, HVect s))
 algWriter :: forall o. EffectAlgebra (Writer o)
@@ -310,29 +335,115 @@ algWriter (Tell o') q = \s -> (q (), mutVec @(Writer o) (o' :) s)
 algReader :: forall e. EffectAlgebra (Reader e)
 algReader (Ask) q = \s -> (q (getVec @(Reader e) s), s)
 
-genWriter :: HVect ts -> HVect (Tagged (Writer o) ': ts)
+genWriter :: forall o ts. HVect ts -> HVect (Tagged (Writer o) ': ts)
 genWriter = (Tagged [] :&:)
 
-genReader :: e -> HVect ts -> HVect (Tagged (Reader e) ': ts)
+genReader :: forall e ts. e -> HVect ts -> HVect (Tagged (Reader e) ': ts)
 genReader e = (Tagged e :&:)
 
 genInit :: HVect '[]
 genInit = HNil
 
-class StepEffect i j e where
-    step :: (HasTag e ts, HasAlg e algs) => HVect ts -> HVect algs -> GraphEff u i a -> GraphEff u j a
+algPut :: forall s. EffectAlgebra (Put s)
+algPut (Put s) q = \vec -> (q (), putVec @(State s) s vec)
 
-instance StepEffect 'Pure 'Pure e where
-    step _ _ = id
+algGet :: forall s. EffectAlgebra (Get s)
+algGet (Get) q = \vec -> (q (getVec @(State s) vec), vec)
 
-instance StepEffect ('Do e) 'Pure e where
+addAlgState :: forall s ts. HVect ts -> HVect (Alg (Put s) ': Alg (Get s) ': ts)
+addAlgState vec = Alg (algPut) :&: Alg (algGet) :&: vec  
+
+genState :: forall s ts. s -> HVect ts -> HVect (Tagged (State s) ': ts)
+genState e = (Tagged e :&:)
+
+type family HasTagsFor i ts algs :: Constraint where
+    HasTagsFor 'Pure      ts algs = ()
+    HasTagsFor ('Do e)    ts algs = (HasTag (TagOf e) ts, HasAlg e algs)
+    HasTagsFor (i :>>= j) ts algs = (HasTagsFor i ts algs, HasTagsFor (FViewL j) ts algs)
+    HasTagsFor (i :<*> j) ts algs = (HasTagsFor i ts algs, HasTagsFor j ts algs)
+
+type family BindStep i :: Constraint where
+    BindStep (i :>>= j) = (StepEffect i, StepEffect (FViewL j), BindStep i, BindStep (FViewL j))
+    BindStep ('Do e)    = StepEffect ('Do e)
+    BindStep (i :<*> j) = (BindStep i, BindStep j)
+    BindStep 'Pure      = ()
+
+class StepEffect i where
+    step :: (HasTagsFor i ts algs) => HVect ts -> HVect algs -> GraphEff u i a -> (a, HVect ts)
+
+instance StepEffect 'Pure where
+    step ts _ (V x) = (x, ts)
+
+instance StepEffect ('Do e) where
     step ts algs (E u q) = 
-        let (EffectAlgebra' alg) = getAlg @e algs
-        in V . fst $ ((alg u q) ts)
+        let (Alg alg) = getAlg @e algs
+            (r, ts') = (alg u q) ts
+        in (r, ts')
 
-instance (FViewL j ~ r) => StepEffect ('Do e :>>= j) r e where
-    step ts algs (B (E u f) q) = 
-        let (EffectAlgebra' alg) = getAlg @e algs
-        in case tviewl q of 
-            TOne q' -> let r = fst $ (alg u f) ts in q' r
+instance (BindStep (i :>>= j)) => StepEffect (i :>>= j) where
+    step :: forall ts algs a u. (HasTagsFor (i :>>= j) ts algs, BindStep (i :>>= j)) => HVect ts -> HVect algs -> GraphEff u (i ':>>= j) a -> (a, HVect ts)
+    step ts algs (B u q) = 
+        go (step @i ts algs u) q
+      where 
+        -- These constraints can't be inferred.
+        go :: forall x k. (BindStep (FViewL k), StepEffect (FViewL k), HasTagsFor (FViewL k) ts algs) => (x, HVect ts) -> FTCQueue (GraphEff u) k x a -> (a, HVect ts)
+        go (x, ts') q   = case tviewl q of
+            TOne q'   -> step ts' algs (q' x)
+            q' :< qs' -> go (step ts' algs (q' x)) qs'
 
+instance (StepEffect i, StepEffect j) => StepEffect (i :<*> j) where
+    step ts algs (A f a) = 
+        let (a', ts' ) = step @j ts algs a
+            (f', ts'') = step @i ts' algs f
+        in (f' a', ts'')
+
+t2init = genWriter @String $ genReader @Int 42 $ genInit
+t2alg  = Alg (algWriter @String) :&: Alg (algReader @Int) :&: HNil 
+t2r = step t2init t2alg t2
+
+t3 = do
+    let doOnce = do
+            x <- get @Int
+            y <- get @Float
+            put @Float (fromIntegral x * y)
+            put @Int (x + round (log y))
+        doTwice = doOnce >> doOnce
+        doFour = doTwice >> doTwice
+        doEight = doFour >> doFour
+    doEight
+
+-- Type of t3:
+-- t3
+--   :: GraphEff
+--        u
+--        ((((('Do (Get Int) ':<*> 'Do (Get Float))
+--            ':>>= 'TNode
+--                    ('TNode
+--                       ('TNode
+--                          ('TLeaf ('Do (Put Float) ':<*> 'Do (Put Int))) ('TLeaf 'Pure))
+--                       ('TLeaf 'Pure))
+--                    ('TLeaf 'Pure))
+--           ':<*> (('Do (Get Int) ':<*> 'Do (Get Float))
+--                  ':>>= 'TLeaf ('Do (Put Float) ':<*> 'Do (Put Int))))
+--          ':<*> ((('Do (Get Int) ':<*> 'Do (Get Float))
+--                  ':>>= 'TNode
+--                          ('TLeaf ('Do (Put Float) ':<*> 'Do (Put Int))) ('TLeaf 'Pure))
+--                 ':<*> (('Do (Get Int) ':<*> 'Do (Get Float))
+--                        ':>>= 'TLeaf ('Do (Put Float) ':<*> 'Do (Put Int)))))
+--         ':<*> (((('Do (Get Int) ':<*> 'Do (Get Float))
+--                  ':>>= 'TNode
+--                          ('TNode
+--                             ('TLeaf ('Do (Put Float) ':<*> 'Do (Put Int))) ('TLeaf 'Pure))
+--                          ('TLeaf 'Pure))
+--                 ':<*> (('Do (Get Int) ':<*> 'Do (Get Float))
+--                        ':>>= 'TLeaf ('Do (Put Float) ':<*> 'Do (Put Int))))
+--                ':<*> ((('Do (Get Int) ':<*> 'Do (Get Float))
+--                        ':>>= 'TNode
+--                                ('TLeaf ('Do (Put Float) ':<*> 'Do (Put Int))) ('TLeaf 'Pure))
+--                       ':<*> (('Do (Get Int) ':<*> 'Do (Get Float))
+--                              ':>>= 'TLeaf ('Do (Put Float) ':<*> 'Do (Put Int))))))
+--        ()
+
+t3init = genState @Int 42 $ genState @Float (0.1 + 0.2) $ genInit
+t3alg = addAlgState @Int $ addAlgState @Float $ HNil
+t3r = step t3init t3alg t3
