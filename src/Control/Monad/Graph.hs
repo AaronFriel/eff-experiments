@@ -57,7 +57,7 @@ import GHC.Types (RuntimeRep (..))
 import           Unsafe.Coerce               (unsafeCoerce)
 -- import Control.Monad (join)
 import Control.Monad.Indexed
-import Data.Singletons.TypeRepStar
+-- import Data.Singletons.TypeRepStar
 import Data.HVect hiding (Nat)
 
 import qualified Debug.Trace as Debug
@@ -634,44 +634,44 @@ $(promoteOnly [d|
 -- runInterpreters = undefined
 
 
-data WrappedMonad m i a where
-  WrappedMonad :: m a -> WrappedMonad m () a
+-- data WrappedMonad m i a where
+--   WrappedMonad :: m a -> WrappedMonad m () a
 
-instance Functor f => GFunctor (WrappedMonad f) where
-    gmap f (WrappedMonad m) = WrappedMonad $ fmap f m
+-- instance Functor f => GFunctor (WrappedMonad f) where
+--     gmap f (WrappedMonad m) = WrappedMonad $ fmap f m
 
-instance Applicative f => GPointed () (WrappedMonad f) where
-  type EmptyishC () = ()
-  greturn a = WrappedMonad (pure a)
+-- instance Applicative f => GPointed () (WrappedMonad f) where
+--   type EmptyishC () = ()
+--   greturn a = WrappedMonad (pure a)
 
-instance Applicative f => GApplicative () (WrappedMonad f) where
-  type Apish () () = ()
-  type ApishC () () = ()
-  gap (WrappedMonad u) (WrappedMonad v) = WrappedMonad (u <*> v)
+-- instance Applicative f => GApplicative () (WrappedMonad f) where
+--   type Apish () () = ()
+--   type ApishC () () = ()
+--   gap (WrappedMonad u) (WrappedMonad v) = WrappedMonad (u <*> v)
 
-instance Monad m => GMonad () (WrappedMonad m) where
-  type Bindish () () = ()
-  type BindishC () () = ()
-  k `gbind` (WrappedMonad m) = WrappedMonad (m >>= (\(WrappedMonad m') -> m') . k)
+-- instance Monad m => GMonad () (WrappedMonad m) where
+--   type Bindish () () = ()
+--   type BindishC () () = ()
+--   k `gbind` (WrappedMonad m) = WrappedMonad (m >>= (\(WrappedMonad m') -> m') . k)
 
-data WrappedIx m p a where
-  WrappedIx :: m i j a -> WrappedIx m (i, j) a
+-- data WrappedIx m p a where
+--   WrappedIx :: m i j a -> WrappedIx m (i, j) a
 
-instance IxFunctor f => GFunctor (WrappedIx f) where
-    gmap :: forall a b p. (a -> b) -> WrappedIx f p a -> WrappedIx f p b
-    gmap f (WrappedIx m) = WrappedIx (imap f m)
+-- instance IxFunctor f => GFunctor (WrappedIx f) where
+--     gmap :: forall a b p. (a -> b) -> WrappedIx f p a -> WrappedIx f p b
+--     gmap f (WrappedIx m) = WrappedIx (imap f m)
 
-instance IxPointed f => GPointed (i, j) (WrappedIx f) where
-    type EmptyishC (i, j) = (i ~ j)
-    greturn a = WrappedIx $ ireturn a
+-- instance IxPointed f => GPointed (i, j) (WrappedIx f) where
+--     type EmptyishC (i, j) = (i ~ j)
+--     greturn a = WrappedIx $ ireturn a
 
-instance IxApplicative f => GApplicative (i, j) (WrappedIx f) where
-  type ApishC (i, j1) (j2, k) = (j1 ~ j2)
-  type Apish (i, j1) (j2, k) = (i, k)
-  gap (WrappedIx u) (WrappedIx v) = WrappedIx (iap u v)
+-- instance IxApplicative f => GApplicative (i, j) (WrappedIx f) where
+--   type ApishC (i, j1) (j2, k) = (j1 ~ j2)
+--   type Apish (i, j1) (j2, k) = (i, k)
+--   gap (WrappedIx u) (WrappedIx v) = WrappedIx (iap u v)
 
-instance IxMonad m => GMonad (j2, k) (WrappedIx m) where
-  type BindishC (i, j1) (j2, k) = (j1 ~ j2)
-  type Bindish (i, j1) (j2, k) = (i, k)
-  k `gbind` (WrappedIx m) = WrappedIx $ (\a -> (case k a of WrappedIx k' -> k')) `ibind` m
+-- instance IxMonad m => GMonad (j2, k) (WrappedIx m) where
+--   type BindishC (i, j1) (j2, k) = (j1 ~ j2)
+--   type Bindish (i, j1) (j2, k) = (i, k)
+--   k `gbind` (WrappedIx m) = WrappedIx $ (\a -> (case k a of WrappedIx k' -> k')) `ibind` m
 

@@ -304,9 +304,8 @@ data ApTree t = Compute [t]
               | ApTree t `But` ApTree t
 
 data FreeApVec t f i j a where
-    Single :: !(SnocList f i j a)              -> FreeApVec ('Compute t) f i j a 
-    Then :: !(SnocList f i j a)              -> FreeApVec ('Compute t) f i j a 
---     Then   :: !(FreeApVec r) -> !(HVect t    ) -> FreeApVec (r ':*> 'Compute t)
+    Single :: !(SnocList f i j a)                        -> FreeApVec ('Compute t) f i j a 
+    (:<*)  :: !(FreeApVec r f i j a) -> SnocList f j k a -> FreeApVec (r `'Then` 'Compute t)
 --     But    :: !(HVect b    ) -> !(FreeApVec r) -> FreeApVec ('Compute b ':<* r)
 
 -- data FreeApQ f i j a where
