@@ -48,7 +48,8 @@ import Data.Singletons.Prelude.Bool
 -- import Data.Singletons.TypeRepStar
 import Data.Singletons.Decide
 import Unsafe.Coerce
-import Control.Lens hiding ((%~), (:<))
+-- import Control.Lens hiding ((%~), (:<))
+import qualified Debug.Trace as Debug (trace, traceShow)
 
 -- import Debug.Trace
 
@@ -61,16 +62,18 @@ import Prelude hiding (
     return, (>>=), (=<<), (>>)
     )
 
+
 infixl 4  <$
 infixl 1  >>, >>=
-infixr 1  =<<
-infixl 4 <*>, <*, *>, <**>
+-- infixr 1  =<<
+infixl 4 <*>, <*, *>
+
 
 fmap :: (a -> b) -> GraphEff u i a -> GraphEff u (GraphMap i) b
 fmap = G.fmap
 
 (<$) :: b -> GraphEff u i a -> GraphEff u (GraphMap i) b
-(<$) = G.fmap . const
+(<$) = (G.<$)
 
 (<$>) :: (a -> b) -> GraphEff u i a -> GraphEff u (GraphMap i) b
 (<$>) = G.fmap
@@ -87,70 +90,20 @@ return = G.pure
 (>>=) :: GraphEff u i a -> (a -> GraphEff u j b) -> GraphEff u (GraphBind i j) b
 (>>=) = (G.>>=)
 
+join :: GraphEff u i (GraphEff u j b) -> GraphEff u (GraphBind i j) b
 join = G.join
 
--- With the above definitions, all types below are inferred.
-liftA :: (a -> b) -> GraphEff u j a -> GraphEff u (GraphMap j) b
-liftA f a = pure f <*> a
-
-liftA2 :: (a -> b -> c) -> GraphEff u i a -> GraphEff u j b -> GraphEff u (GraphAp (GraphMap i) j) c
-liftA2 f a b = pure f <*> a <*> b
-
-liftA3 :: (a -> b -> c -> d) -> GraphEff u i a -> GraphEff u j b -> GraphEff u k c -> GraphEff u (GraphAp (GraphAp (GraphMap i) j) k) d
-liftA3 f a b c = pure f <*> a <*> b <*> c
 
 (<*) :: GraphEff u i a -> GraphEff u j b -> GraphEff u (GraphAp (GraphMap i) j) a
-(<*) = liftA2 const
-
+(<*) = (G.<*)
 (*>) :: GraphEff u i a -> GraphEff u j b -> GraphEff u (GraphAp (GraphMap i) j) b
-a1 *> a2 = (id <$ a1) <*> a2
-
-(<**>) :: GraphEff u i a -> GraphEff u j (a -> b) -> GraphEff u (GraphAp (GraphMap i) j) b
-(<**>) = liftA2 (flip ($))
+(*>)= (G.*>)
 
 (>>) :: GraphEff u i a -> GraphEff u j b -> GraphEff u (GraphAp (GraphMap i) j) b
-(>>) = (*>)
+m >> k = (G.*>) m k
 
 (=<<) :: (a -> GraphEff u j b) -> GraphEff u i a -> GraphEff u (GraphBind i j) b
 (=<<) = flip (>>=)
-
--- [Note: lifTM Types]
-liftM :: (a1 -> r) -> GraphEff u i a1 -> GraphEff u (GraphMap i) r
-liftM f m1              = do { x1 <- m1; return (f x1) }
-
-liftM2 :: (a1 -> a2 -> r) -> GraphEff u i1 a1 -> GraphEff u i2 a2 -> GraphEff u (GraphAp (GraphMap i1) i2) r
-liftM2 f m1 m2          = do { x1 <- m1; x2 <- m2; return (f x1 x2) }
-
-liftM3 :: (a1 -> a2 -> a3 -> r) -> GraphEff u i1 a1 -> GraphEff u i2 a2 -> GraphEff u i3 a3 -> GraphEff u (GraphAp (GraphAp (GraphMap i1) i2) i3) r
-liftM3 f m1 m2 m3       = do { x1 <- m1; x2 <- m2; x3 <- m3; return (f x1 x2 x3) }
-
-liftM4 :: (a1 -> a2 -> a3 -> a4 -> r) -> GraphEff u i1 a1 -> GraphEff u i2 a2 -> GraphEff u i3 a3 -> GraphEff u i4 a4 -> GraphEff u (GraphAp (GraphAp (GraphAp (GraphMap i1) i2) i3) i4) r
-liftM4 f m1 m2 m3 m4    = do { x1 <- m1; x2 <- m2; x3 <- m3; x4 <- m4; return (f x1 x2 x3 x4) }
-
-liftM5 :: (a1 -> a2 -> a4 -> a5 -> a6 -> r) -> GraphEff u i1 a1 -> GraphEff u i2 a2 -> GraphEff u i3 a4 -> GraphEff u i4 a5 -> GraphEff u i5 a6 -> GraphEff u (GraphAp (GraphAp (GraphAp (GraphAp (GraphMap i1) i2) i3) i4) i5) r
-liftM5 f m1 m2 m3 m4 m5 = do { x1 <- m1; x2 <- m2; x3 <- m3; x4 <- m4; x5 <- m5; return (f x1 x2 x3 x4 x5) }
-
-ap :: GraphEff u i (a -> b) -> GraphEff u j a -> GraphEff u (GraphAp (GraphMap i) j) b
-ap m1 m2 = do { x1 <- m1; x2 <- m2; return (x1 x2) }
-
-
--- Recursive bindings are (naively) impossible. This type is inferred, but unsatisfiable.
--- We will need to implement our own folds and control flow.
--- GraphAp (GraphMap i) 'Pure => GraphMap i != 'Pure 
-mapM_bad :: (GraphAp (GraphMap i) 'Pure ~ 'Pure, Foldable t)
-      => (a1 -> GraphEff u i a) -> t a1 -> GraphEff u 'Pure ()
-mapM_bad f = foldr ((>>) . f) (return ())
-
--- We can fix the types to allow recursive pure folds:
-mapM_pure :: (Foldable t) => (a1 -> GraphEff u 'Pure a) -> t a1 -> GraphEff u 'Pure ()
-mapM_pure f = foldr ((>>) . f) (return ())
-
--- As above.
-sequence_Bad :: (GraphAp (GraphMap i) 'Pure ~ 'Pure, Foldable t) => t (GraphEff u i a) -> GraphEff u 'Pure ()
-sequence_Bad = foldr (>>) (return ())
-
-sequence_Pure :: (Foldable t) => t (GraphEff u 'Pure a) -> GraphEff u 'Pure ()
-sequence_Pure = foldr (>>) (return ())
 
 {-       ######## ######## ######## ########  ######  ########  ######  
          ##       ##       ##       ##       ##    ##    ##    ##    ## 
@@ -160,39 +113,6 @@ sequence_Pure = foldr (>>) (return ())
          ##       ##       ##       ##       ##    ##    ##    ##    ## 
          ######## ##       ##       ########  ######     ##     ######        -}
 
-
-type family EffectDepth u e where
-    EffectDepth '[              '[] ] e = TypeError (
-                                            'Text "The effect " ':<>: 'ShowType e 
-                                            ':<>: 'Text " has not been handled.")
-    EffectDepth  (       '[]  ': ts )  e = 1 + (EffectDepth ts e)
-    EffectDepth  (  (e ': rs) ': ts )  e = 0
-    EffectDepth  (  (x ': rs) ': ts )  e = EffectDepth ( rs ': ts ) e
-
-type family RunEffect' u es where
-    RunEffect'   u   '[] = u
-    RunEffect' efx  (e ': es) = RunEffect' (e ': efx) es
-
-type family RunEffect u es where
-    RunEffect ('Graph ps efx)    es = 'Graph ps (RunEffect' efx es)
-
-class HasEffect u i e
-
-data TrivialData
-type Trivial = TrivialData ~ TrivialData
-
-type family HasEffectTree i e :: Constraint where
-    HasEffectTree (    'Do e) e = Trivial
-    HasEffectTree (i ':>>= j) e = (HasEffectTree i e, HasEffectBindTree j e)
-
-type family HasEffectBindTree i e :: Constraint where
-    HasEffectBindTree ('TLeaf i)   e = HasEffectTree i e
-    HasEffectBindTree ('TNode i j) e = (HasEffectBindTree i e, HasEffectBindTree j e)
-
-prepare :: GraphEff ('Graph '[] '[]) i a -> GraphEff ('Graph '[] '[]) i a
-prepare a = a
-
-type NilU' = 'Graph '[] '[]
 
 data Reader e where
     Ask :: Reader e
@@ -231,29 +151,29 @@ type instance Output (Call i a) = a
 
 -- Type is inferred.
 -- t1 :: GraphEff u ('Aps ('Aps ('Do (Reader Int)) ('Do (Reader Float))) ('Do (Reader String))) (Int, Float, String)
-t1 :: GraphEff U (('Do (Reader Int) ':<*> 'Do (Reader Float)) ':<*> 'Do (Reader String)) (Int, Float, String)
-t1 = simpleEff $ do
+-- t1 :: GraphEff U (('Do (Reader Int) ':<*> 'Do (Reader Float)) ':<*> 'Do (Reader String)) (Int, Float, String)
+t1 = do
     a <- ask @Int
     b <- ask @Float
     c <- ask @String
-    return (a, b, c)
+    G.pure (a, b, c)
 
-t2 :: GraphEff U ('Do (Reader Int) ':>>= 'TLeaf ('Do (Writer String))) Int
-t2 = simpleEff $ do
+-- t2 :: GraphEff U ('Do (Reader Int) ':>>= 'TLeaf ('Do (Writer String))) Int
+t2 = do 
     a <- ask @Int
     tell (show a)
-    return (a + 1)
+    G.pure (a + 1)
 
-simpleEff :: GraphEff U i a -> GraphEff U i a
-simpleEff a = a
+-- simpleEff :: GraphEff U i a -> GraphEff U i a
+-- simpleEff a = a
 
 auto :: ((GraphEff u i a -> GraphEff u ('Do (Call 0 a)) a) -> GraphEff u i a) -> GraphEff u i a
 auto m = m undefined
 
-tloop :: GraphEff u ('Do (Writer [Char]) ':<*> 'Do (Call 0 a)) a
-tloop = auto $ \cc -> do
-    tell "Foobar"
-    cc tloop
+-- tloop :: GraphEff u ('Do (Writer [Char]) ':<*> 'Do (Call 0 a)) a
+-- tloop = auto $ \cc -> do
+--     tell "Foobar"
+--     cc tloop
 
 data HVect (ts :: [*]) where
     HNil  :: HVect '[]
@@ -351,99 +271,145 @@ algGet :: forall s. EffectAlgebra (Get s)
 algGet (Get) q = \vec -> (q (getVec @(State s) vec), vec)
 
 addAlgState :: forall s ts. HVect ts -> HVect (Alg (Put s) ': Alg (Get s) ': ts)
-addAlgState vec = Alg (algPut) :&: Alg (algGet) :&: vec  
+addAlgState vec = Alg (algPut) :&: Alg (algGet) :&: vec
 
 genState :: forall s ts. s -> HVect ts -> HVect (Tagged (State s) ': ts)
 genState e = (Tagged e :&:)
+
+newtype Trace where Trace :: String -> Trace
+
+type instance TagOf (Trace) = (Trace)
+type instance Output (Trace) = ()
+type instance TagData (Trace) = ()
+
+algTrace :: EffectAlgebra (Trace)
+algTrace (Trace s) q = \vec -> Debug.trace s $ (q (), vec)
+
+genTrace :: HVect ts -> HVect (Tagged Trace ': ts)
+genTrace = (Tagged () :&:)
+
+traceShow :: Show s => s -> GraphEff u ('Do Trace) ()
+traceShow = send . Trace . show
+
+trace = send . Trace
 
 type family HasTagsFor i ts algs :: Constraint where
     HasTagsFor 'Pure      ts algs = ()
     HasTagsFor ('Do e)    ts algs = (HasTag (TagOf e) ts, HasAlg e algs)
     HasTagsFor (i :>>= j) ts algs = (HasTagsFor i ts algs, HasTagsFor (FViewL j) ts algs)
     HasTagsFor (i :<*> j) ts algs = (HasTagsFor i ts algs, HasTagsFor j ts algs)
+    -- HasTagsFor (i :*> j) ts algs = (HasTagsFor i ts algs, HasTagsFor j ts algs)
+    -- HasTagsFor (i :<* j) ts algs = (HasTagsFor i ts algs, HasTagsFor j ts algs)
+    -- HasTagsFor (GJoin i j) ts algs = (HasTagsFor i ts algs, HasTagsFor j ts algs)
+    -- HasTagsFor (GConst i) ts algs = (HasTagsFor i ts algs)
 
 type family BindStep i :: Constraint where
-    BindStep (i :>>= j) = (StepEffect i, StepEffect (FViewL j), BindStep i, BindStep (FViewL j))
-    BindStep ('Do e)    = StepEffect ('Do e)
+    BindStep (i :>>= j) = (RunEffect i, RunEffect (FViewL j), BindStep i, BindStep (FViewL j))
+    BindStep ('Do e)    = RunEffect ('Do e)
     BindStep (i :<*> j) = (BindStep i, BindStep j)
+    -- BindStep (i :*> j) = (BindStep i, BindStep j)
+    -- BindStep (i :<* j) = (BindStep i, BindStep j)
+    -- BindStep (GJoin i j) = (BindStep i, BindStep j)
+    -- BindStep (GConst i) = (BindStep i)
     BindStep 'Pure      = ()
 
-class StepEffect i where
-    step :: (HasTagsFor i ts algs) => HVect ts -> HVect algs -> GraphEff u i a -> (a, HVect ts)
+class RunEffect i where
+    run :: (HasTagsFor i ts algs) => HVect ts -> HVect algs -> GraphEff u i a -> (a, HVect ts)
 
-instance StepEffect 'Pure where
-    step ts _ (V x) = (x, ts)
+instance RunEffect 'Pure where
+    run ts _ (V x) = (x, ts)
 
-instance StepEffect ('Do e) where
-    step ts algs (E u q) = 
+instance RunEffect ('Do e) where
+    run ts algs (E u q) = 
         let (Alg alg) = getAlg @e algs
             (r, ts') = (alg u q) ts
         in (r, ts')
 
-instance (BindStep (i :>>= j)) => StepEffect (i :>>= j) where
-    step :: forall ts algs a u. (HasTagsFor (i :>>= j) ts algs, BindStep (i :>>= j)) => HVect ts -> HVect algs -> GraphEff u (i ':>>= j) a -> (a, HVect ts)
-    step ts algs (B u q) = 
-        go (step @i ts algs u) q
+instance (BindStep (i :>>= j)) => RunEffect (i :>>= j) where
+    run :: forall ts algs a u. (HasTagsFor (i :>>= j) ts algs, BindStep (i :>>= j)) => HVect ts -> HVect algs -> GraphEff u (i ':>>= j) a -> (a, HVect ts)
+    run ts algs (B u q) = 
+        go (run @i ts algs u) q
       where 
         -- These constraints can't be inferred.
-        go :: forall x k. (BindStep (FViewL k), StepEffect (FViewL k), HasTagsFor (FViewL k) ts algs) => (x, HVect ts) -> FTCQueue (GraphEff u) k x a -> (a, HVect ts)
+        go :: forall x k. (BindStep (FViewL k), RunEffect (FViewL k), HasTagsFor (FViewL k) ts algs) => (x, HVect ts) -> FTCQueue (GraphEff u) k x a -> (a, HVect ts)
         go (x, ts') q   = case tviewl q of
-            TOne q'   -> step ts' algs (q' x)
-            q' :< qs' -> go (step ts' algs (q' x)) qs'
+            TOne q'   -> run ts' algs (q' x)
+            q' :< qs' -> go (run ts' algs (q' x)) qs'
 
-instance (StepEffect i, StepEffect j) => StepEffect (i :<*> j) where
-    step ts algs (A f a) = 
-        let (a', ts' ) = step @j ts algs a
-            (f', ts'') = step @i ts' algs f
+instance (RunEffect i, RunEffect j) => RunEffect (i :<*> j) where
+    run ts algs (A f a) = 
+        let (f', ts') = run @i ts algs f
+            (a', ts'') = run @j ts' algs a
         in (f' a', ts'')
 
-t2init = genWriter @String $ genReader @Int 42 $ genInit
-t2alg  = Alg (algWriter @String) :&: Alg (algReader @Int) :&: HNil 
-t2r = step t2init t2alg t2
+-- instance (RunEffect i, RunEffect j) => RunEffect (i :*> j) where
+--     run ts algs (Then a b) = 
+--         let (a', ts') = run @i ts algs a
+--             (b', ts'') = run @j ts' algs b
+--         in (b', ts'')
 
-t3 = do
-    let doOnce = do
+-- instance (RunEffect i, RunEffect j) => RunEffect (i :<* j) where
+--     run ts algs (But a b) = 
+--         let (a', ts') = run @i ts algs a
+--             (b', ts'') = run @j ts' algs b
+--         in (a', ts'')
+
+-- instance (RunEffect i) => RunEffect (GConst i) where
+--     run ts algs (Const m b) = 
+--         let (_, ts') = run @i ts algs m
+--         in (b, ts')
+
+-- instance (RunEffect i, RunEffect j) => RunEffect (GJoin i j) where
+--     run ts algs (J m) = 
+--         let (m', ts') = run @i ts algs m
+--             (r, ts'') = run @j ts' algs m'
+--         in (r, ts'')
+
+-- t2init = genWriter @String $ genReader @Int 42 $ genInit
+-- t2alg  = Alg (algWriter @String) :&: Alg (algReader @Int) :&: HNil 
+-- t2r = run t2init t2alg t2
+
+-- t3_1 :: Int -> GraphEff u ('GJoin ('Do (Get Int) ':<*> 'Do (Get Float)) (GraphAp (GraphAp (GraphAp (GraphMap ('Do Trace ':*> j1)) ('Do Trace ':*> j)) ('Do (Put Float) ':*> j2)) ('Do (Put Int) ':*> j3))) Int
+t3_1 z = do
+    x <- get @Int
+    y <- get @Float
+    _ <- trace ("x : " ++ show x)
+    _ <- trace ("y : " ++ show y)
+    _ <- put @Float (fromIntegral x * y + fromIntegral z)
+    _ <- put @Int (x + round (log y) + z)
+    return (x + round y + z)
+
+t3_2 z = do
+    z' <- t3_1 z
+    t3_1 z'
+
+t3_4 z = do
+    z' <- t3_2 z
+    t3_2 z'
+
+t3_8 z = do
+    z' <- t3_4 z
+    t3_4 z'
+
+t3 z = do
+    let do_once z = do
             x <- get @Int
             y <- get @Float
-            put @Float (fromIntegral x * y)
-            put @Int (x + round (log y))
-        doTwice = doOnce >> doOnce
-        doFour = doTwice >> doTwice
-        doEight = doFour >> doFour
-    doEight
+            _ <- trace ("x : " ++ show x)
+            _ <- trace ("y : " ++ show y)
+            _ <- put @Float (fromIntegral x * y + fromIntegral z)
+            _ <- put @Int (x + round (log y) + z)
+            return (x + round y + z)
+        do_4 z = do_once z >>= do_once >>= do_once >>= do_once
+        do_8 z = do_4 z >>= do_4
+    z' <- do_8 z
+    x <- get @Int
+    y <- get @Float
+    return (x, y)
 
--- Type of t3:
--- t3
---   :: GraphEff
---        u
---        ((((('Do (Get Int) ':<*> 'Do (Get Float))
---            ':>>= 'TNode
---                    ('TNode
---                       ('TNode
---                          ('TLeaf ('Do (Put Float) ':<*> 'Do (Put Int))) ('TLeaf 'Pure))
---                       ('TLeaf 'Pure))
---                    ('TLeaf 'Pure))
---           ':<*> (('Do (Get Int) ':<*> 'Do (Get Float))
---                  ':>>= 'TLeaf ('Do (Put Float) ':<*> 'Do (Put Int))))
---          ':<*> ((('Do (Get Int) ':<*> 'Do (Get Float))
---                  ':>>= 'TNode
---                          ('TLeaf ('Do (Put Float) ':<*> 'Do (Put Int))) ('TLeaf 'Pure))
---                 ':<*> (('Do (Get Int) ':<*> 'Do (Get Float))
---                        ':>>= 'TLeaf ('Do (Put Float) ':<*> 'Do (Put Int)))))
---         ':<*> (((('Do (Get Int) ':<*> 'Do (Get Float))
---                  ':>>= 'TNode
---                          ('TNode
---                             ('TLeaf ('Do (Put Float) ':<*> 'Do (Put Int))) ('TLeaf 'Pure))
---                          ('TLeaf 'Pure))
---                 ':<*> (('Do (Get Int) ':<*> 'Do (Get Float))
---                        ':>>= 'TLeaf ('Do (Put Float) ':<*> 'Do (Put Int))))
---                ':<*> ((('Do (Get Int) ':<*> 'Do (Get Float))
---                        ':>>= 'TNode
---                                ('TLeaf ('Do (Put Float) ':<*> 'Do (Put Int))) ('TLeaf 'Pure))
---                       ':<*> (('Do (Get Int) ':<*> 'Do (Get Float))
---                              ':>>= 'TLeaf ('Do (Put Float) ':<*> 'Do (Put Int))))))
---        ()
-
-t3init = genState @Int 42 $ genState @Float (0.1 + 0.2) $ genInit
-t3alg = addAlgState @Int $ addAlgState @Float $ HNil
-t3r = step t3init t3alg t3
+t3init = genTrace (genState @Int 42 $ genState @Float (0.1 + 0.2) $ genInit)
+t3alg = Alg algTrace :&: (addAlgState @Int $ addAlgState @Float $ HNil)
+-- -- Inferred type:
+t3r :: ((Int, Float), HVect '[Tagged (Trace), Tagged (State Int), Tagged (State Float)])
+t3r = run t3init t3alg (t3 5)
+-- == ((),141 :&: 5.2924017e13 :&: HNil)t3r
