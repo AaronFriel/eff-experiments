@@ -7,9 +7,12 @@
 -- Makes for nicer type families where Plus is reused.
 {-# LANGUAGE UndecidableInstances #-}
 
+{-# LANGUAGE StrictData #-}
+
 module Control.Monad.Graph.Class where
 
 import Data.Kind (Constraint, type (*))
+import Control.Monad
 import Control.Monad.Indexed
 import Data.Type.Equality
 import GHC.Base (Any)
@@ -43,12 +46,17 @@ class KEffect f => Bindable (f :: k -> * -> *) where
     type family Join (f :: k -> * -> *) (i :: k) (j :: k) :: k
     type instance Join f i j = Bind f i j
 
+class KEffect f => Fallible (f :: k -> * -> *) where
+    type family Fail (f :: k -> * -> *) :: k
+    type instance Fail f = Unit f
+
 class KEffect f => KPointed (f :: k -> * -> *) where
     kreturn :: a -> f (Unit f) a
 
 class KEffect f => KFunctor (f :: k -> * -> *) where
     kmap :: (a -> b) -> f i a -> f (Fmap f i) b
 
+    {-# INLINABLE kconst #-}
     kconst :: a -> f i b -> f (Fconst f i) a
     default kconst :: (Fconst f i ~ Fmap f i) => a -> f i b -> f (Fconst f i) a
     kconst = kmap . const
@@ -57,12 +65,14 @@ class (KFunctor f, KPointed f) => KApplicative (f :: k -> * -> *) where
     kap :: Inv f i j => f i (a -> b) -> f j a -> f (Apply f i j) b
 
     -- *>
+    {-# INLINE kthen #-}
     kthen :: Inv f i j => f i a -> f j b -> f (Then f i j) b
     default kthen :: (Apply f (Fconst f i) j ~ Then f i j, Inv f (Fconst f i) j)
                   => f i a -> f j b -> f (Then f i j) b
     kthen a b = (id `kconst` a) `kap` b
 
     -- <*
+    {-# INLINE kbut #-}
     kbut :: Inv f i j => f i a -> f j b -> f (But f i j) a
     default kbut :: (Apply f (Apply f (Unit f) i) j ~ But f i j, Inv f (Unit f) i, Inv f (Apply f (Unit f) i) j) 
                  => f i a -> f j b -> f (But f i j) a
@@ -71,9 +81,13 @@ class (KFunctor f, KPointed f) => KApplicative (f :: k -> * -> *) where
 class KApplicative f => KMonad (f :: k -> * -> *) where
     kbind :: Inv f i j => f i a -> (a -> f j b) -> f (Bind f i j) b
 
+    {-# INLINE kjoin #-}
     kjoin :: (Inv f i j) => f i (f j b) -> f (Join f i j) b
     default kjoin :: (Bind f i j ~ Join f i j, Inv f i j) => f i (f j b) -> f (Join f i j) b
     kjoin x = x `kbind` id
+
+class KMonad f => KMonadFail (f :: k -> * -> *) where
+    kfail :: String -> f (Fail f) a
 
 -- Wrapping a non-indexed type: 
 newtype WrappedM (m :: * -> *) (p :: ()) a where
@@ -81,6 +95,9 @@ newtype WrappedM (m :: * -> *) (p :: ()) a where
 
 unM :: WrappedM m p a -> m a
 unM (WrappedM m) = m
+
+liftWM :: m a -> WrappedM m '() a
+liftWM = WrappedM
 
 instance KEffect (WrappedM m :: () -> * -> *) where
     type Unit (WrappedM m) = '()
@@ -104,6 +121,9 @@ instance Applicative m => KApplicative (WrappedM m) where
 
 instance Monad m => KMonad (WrappedM m) where
     kbind (WrappedM m) k = WrappedM $ m >>= unM . k
+
+instance Monad m => KMonadFail (WrappedM m) where
+    kfail = WrappedM . fail
 
 -- Wrapping an indexed type with two phantom parameters, parameters form a category.
 newtype IxEff (m :: * -> *) (p :: CatArr i j) (a :: *) = IxEff { unIx :: m a }
@@ -147,6 +167,9 @@ instance Applicative m => KApplicative (IxEff m) where
 instance Monad m => KMonad (IxEff m) where
     kbind (IxEff m) k = IxEff $ m >>= unIx . k
 
+instance MonadPlus m => KMonadFail (IxEff m) where
+    kfail _ = IxEff $ mzero
+
 -- Wrapped IxMonad from Control.Monad.Indexed
 newtype WrappedIx (m :: k -> k -> * -> *) (p :: CatArr k k) a = WrappedIx { unWix :: m (FstArr p) (SndArr p) a }
 
@@ -174,3 +197,6 @@ instance IxApplicative m => KApplicative (WrappedIx m) where
 
 instance IxMonad m => KMonad (WrappedIx m) where
     kbind (WrappedIx m) k = WrappedIx $ (unWix . k) `ibind` m
+
+instance IxMonadZero m => KMonadFail (WrappedIx m) where
+    kfail _ = WrappedIx $ imzero

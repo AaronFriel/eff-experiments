@@ -13,11 +13,15 @@
 -- {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-unticked-promoted-constructors #-}
 
+{-# LANGUAGE StrictData #-}
+
 module Control.Monad.Graph.Eff where
 
 import Control.Monad.Graph.Class
 -- import Data.Singletons.TH
 import Data.Kind (type (*))
+
+import GHC.Types
 
 data EffTree a = Pure | Do a | (EffTree a) :<*> (EffTree a) | EffTree a :>>= EffQueue a
 
@@ -82,15 +86,18 @@ type family GraphBind (i :: k) (j :: k) :: k where
     GraphBind           i       j = i :>>= TLeaf j
 
 instance KFunctor (GraphEff u) where
+    {-# INLINE kmap #-}
     kmap f (V x) = V (f x)
     kmap f (E u q)  = E u (f . q)
     kmap f (A a as) = A (kmap (f .) a) as
     kmap f (B u q)  = B u (q |> (V . f))
 
 instance KPointed (GraphEff u) where
+    {-# INLINE kreturn #-}
     kreturn = V
 
 instance KApplicative (GraphEff u) where
+    {-# INLINE kap #-}
     V f `kap` m = kmap f m
     E u q `kap` k = case k of
       V x   -> E u (\o -> (q o) x)
@@ -108,13 +115,15 @@ instance KApplicative (GraphEff u) where
       B _ _ -> A (B u q) k
       A _ _ -> A (B u q) k
 
-    
-
 instance KMonad (GraphEff u) where
+    {-# INLINE kbind #-}
     (V x)    `kbind` k = k x
     (E u q)  `kbind` k = B (E u q) (tsingleton k)
     (A a as) `kbind` k = B (A a as) (tsingleton k)
     (B u q)  `kbind` k = B u (q |> k)
+
+instance KMonadFail (GraphEff u) where
+    kfail = error
 
 -- type role FTCQueue representational phantom representational nominal
 data FTCQueue m (i :: EffQueue Effect) a b where
@@ -151,13 +160,16 @@ type family FViewL i where
     FViewL (TLeaf r)       = r
     FViewL (TNode tl1 tl2) = FViewL' tl1 tl2
 
+{-# INLINE tviewl #-}
 tviewl :: FTCQueue m i a b -> ViewL m (FViewL i) a b
 tviewl (Leaf r) = TOne r
-tviewl (Node t1 t2) = go t1 t2
+tviewl (Node t1 t2) = go SPEC t1 t2
     where
-      go :: FTCQueue m i a x -> FTCQueue m j x b -> ViewL m (FViewL' i j) a b
-      go (Leaf r) tr = r :< tr
-      go (Node tl1 tl2) tr = go tl1 (Node tl2 tr)
+      {-# INLINABLE go #-}
+      go :: SPEC -> FTCQueue m i a x -> FTCQueue m j x b -> ViewL m (FViewL' i j) a b
+      go sPEC (Leaf r) tr = r :< tr
+      go sPEC (Node tl1 tl2) tr = go sPEC tl1 (Node tl2 tr)
 
+{-# INLINE send #-}
 send :: ctor -> GraphEff u (Do ctor) (Output ctor)
 send t = E t id
