@@ -2,6 +2,8 @@
 .hsenv*
 cabal-dev/
 
+*.dump-simpl
+
 .cabal-sandbox
 cabal.sandbox.config
 
