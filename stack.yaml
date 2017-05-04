@@ -4,8 +4,8 @@ packages:
   - '.'
   - location: ./dep/graphted
     extra-dep: false
-  # - location: ./dep/indexed
-  #   extra-dep: true
+  - location: ./dep/intero
+    extra-dep: true
   # - location: ./dep/deepseq
   #   extra-dep: true
   # - location: 
@@ -17,13 +17,50 @@ packages:
   #     commit: 97567a887c0fab84889bd22894151b3576bd616e
   #   extra-dep: true
 allow-newer: true
-resolver: lts-8.12
+# resolver: lts-8.12
+# extra-deps:
+#  - indexed-0.1.3
 
 # GHC 8.2.1: (not working with Intero)
-# resolver: ghc-8.2.0.20170404
-# compiler: ghc-8.2.0.20170404
-# compiler-check: match-exact
-# extra-deps:
+resolver: lts-8.13
+compiler: ghc-8.2.0.20170404
+compiler-check: match-exact
+extra-package-dbs: 
+ - /zfsdev/volumes/devhome/.stack/programs/x86_64-linux/ghc-nopie-8.2.0.20170404/lib/ghc-8.2.0.20170404/package.conf.d
+extra-deps:
+  - indexed-0.1.3
+  - semigroupoids-5.2
+  - lens-4.15.2
+  - syb-0.7
+  # 
+  - Cabal-2.0.0.0
+  - array-0.5.1.2
+  - base-4.10.0.0
+  - binary-0.8.4.1
+  - bytestring-0.10.8.2
+  - containers-0.5.10.2
+  - deepseq-1.4.3.0
+  - directory-1.3.0.2
+  - filepath-1.4.1.1
+  - ghc-8.2.0.20170404
+  - ghc-boot-8.2.0.20170404
+  - ghc-boot-th-8.2.0.20170404
+  - ghc-compact-0.1.0.0
+  - ghc-prim-0.5.0.0
+  - ghci-8.2.0.20170404
+  - haskeline-0.7.3.1
+  - hoopl-3.10.2.2
+  - hpc-0.6.0.3
+  - integer-gmp-1.0.0.1
+  - pretty-1.1.3.3
+  - process-1.4.3.0
+  - rts-1.0
+  - template-haskell-2.12.0.0
+  - terminfo-0.4.0.2
+  - time-1.8.0.1
+  - transformers-0.5.2.0
+  - unix-2.7.2.1
+  - xhtml-3000.2.1
 #   - StateVar-1.1.0.4
 #   - adjunctions-4.3
 #   - base-orphans-0.6

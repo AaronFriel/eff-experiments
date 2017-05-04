@@ -17,8 +17,8 @@
 
 module Control.Monad.Graph.Eff where
 
-import Control.Monad.Graph.Class
-import Control.Monad.Graph.Effect.Base
+import Control.Graphted
+import Control.Monad.Graph.Internal.Eff
 -- import Data.Singletons.TH
 import Data.Kind (type (*))
 

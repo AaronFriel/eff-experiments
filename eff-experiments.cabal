@@ -16,12 +16,11 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     
-                       Control.Monad.Graph.Prelude
-                     , Control.Monad.Graph.Class
-                     , Control.Monad.Graph.Internal.Eff
-                     , Control.Monad.Graph.Internal.FTCQueue
-                     , Control.Monad.Graph.Internal.Types
-                     , Control.Monad.Graph.Effect.Playground
+                       Control.Eff.Internal.Eff
+                     , Control.Eff.Internal.EffectBuilder
+                     , Control.Eff.Internal.FTCQueue
+                     , Control.Eff.Internal.Types
+                     , Control.Eff.Internal.Playground
                     --  , Control.Monad.Graph.Class
                     --  , Control.Monad.Graph.Eff
                     --  , Control.Monad.Graph.Playground
@@ -52,6 +51,7 @@ library
                     --  , haskell-src-meta
                     --  , singletons == 2.3
                      , lens
+                     , graphted
                     --  , type-level-sets
                     --  , cxmonad
                     --  , deepseq

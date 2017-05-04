@@ -1,3 +1,6 @@
 [submodule "dep/graphted"]
 	path = dep/graphted
 	url = ../graphted.git
+[submodule "dep/intero"]
+	path = dep/intero
+	url = ../intero.git

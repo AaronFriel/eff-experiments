@@ -193,18 +193,6 @@ genCall = (Tagged () :&:)
 simpleEff :: Eff U i a -> Eff U i a
 simpleEff a = a
 
-test2 :: Int -> Eff U ('Do (Get Int)) Int
-test2 a = simpleEff $ do
-    b <- get @Int
-    return (a + b)
-
--- type omitted, but inferred. See below:
-test1 a = do
-    b <- get @Int
-    _ <- put @Int (b+1)
-    r <- call $ test2 a
-    return (b + r)
-
 data StdReader (e :: *)
 
 instance HandlerBase (StdReader e) where
@@ -248,6 +236,19 @@ instance HandlerBase (StdTrace) where
 instance EffectHandler (StdTrace) (Trace) where
     handle (Trace str) q = \l -> seq (unsafePerformIO (Debug.traceIO str)) (# q (), l #)
 
+
+test2 :: Int -> Eff U ('Do (Get Int)) Int
+test2 a = simpleEff $ do
+    b <- get @Int
+    return (a + b)
+
+-- type omitted, but inferred. See below:
+test1 a = do
+    b <- get @Int
+    _ <- put @Int (b+1)
+    r <- call $ test2 a
+    return (b + r)
+    
 -- This type is inferred!
 testCall
   :: Int
@@ -540,24 +541,24 @@ run' sPEC ts m@(A _ _) = go sPEC m
 -- t2r = run t2init t2alg t2
 
 
--- t3init = genTrace (genState @Int 42 $ genState @Float (0.1 + 0.2) $ genInit)
--- t3alg = Alg algTrace :&: (addAlgState @Int $ addAlgState @Float $ HNil)
+t3init = genTrace (genState @Int 42 $ genState @Float (0.1 + 0.2) $ genInit)
+t3alg = Alg algTrace :&: (addAlgState @Int $ addAlgState @Float $ HNil)
 
--- t3 z = run t3init t3alg $ do
---     let do_once z = do
---             x <- get @Int
---             y <- get @Float
---             _ <- trace ("x : " ++ show x)
---             _ <- trace ("y : " ++ show y)
---             _ <- put @Float (fromIntegral x * y + fromIntegral z)
---             _ <- put @Int (x + round (log y) + z)
---             return (x + round y + z)
---         do_4 z = do_once z >>= do_once >>= do_once >>= do_once
---         do_8 z = do_4 z >>= do_4
---     z' <- do_8 z
---     x <- get @Int
---     y <- get @Float
---     return (x, y)
+t3 z = run t3init t3alg $ do
+    let do_once z = do
+            x <- get @Int
+            y <- get @Float
+            _ <- trace ("x : " ++ show x)
+            _ <- trace ("y : " ++ show y)
+            _ <- put @Float (fromIntegral x * y + fromIntegral z)
+            _ <- put @Int (x + round (log y) + z)
+            return (x + round y + z)
+        do_4 z = do_once z >>= do_once >>= do_once >>= do_once
+        do_8 z = do_4 z >>= do_4
+    z' <- do_8 z
+    x <- get @Int
+    y <- get @Float
+    return (x, y)
 
 -- -- Inferred type:
--- t3r = run t3init t3alg (t3 5)
+t3r = run t3init t3alg (t3 5)
