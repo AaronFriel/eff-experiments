@@ -4,6 +4,7 @@ cabal-dev/
 
 *.dump-simpl
 
+TAGS
 .cabal-sandbox
 cabal.sandbox.config
 
