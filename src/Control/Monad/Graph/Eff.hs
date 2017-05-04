@@ -18,6 +18,7 @@
 module Control.Monad.Graph.Eff where
 
 import Control.Monad.Graph.Class
+import Control.Monad.Graph.Effect.Base
 -- import Data.Singletons.TH
 import Data.Kind (type (*))
 
@@ -30,73 +31,70 @@ data EffQueue a = TLeaf (EffTree a) | TNode (EffQueue a) (EffQueue a)
 infixl 1 :>>=
 infixl 4 :<*>
 
+type Handler = *
+type Effect  = *
 
 data Graph v = Graph {
-    gpaths     :: [EffTree v],
-    ghandled   :: [v]
+    gpaths     :: [(Nat, EffTree v)],
+    ghandlers  :: [(Effect, Handler)]
 }
 
 type U = 'Graph '[] '[]
 
-type Effect  = *
+type Arrs u i a b = FTCQueue (Eff u) i a b
 
-type family Output e = r
-
-type Arrs u i a b = FTCQueue (GraphEff u) i a b
-
-data GraphEff (u :: Graph Effect) (i :: EffTree Effect) b where
-    V :: b -> GraphEff u Pure b
-    E :: ctor ->  (Output ctor -> b) -> GraphEff u (Do ctor) b
+data Eff (u :: Graph Effect) (i :: EffTree Effect) b where
+    V :: b -> Eff u Pure b
+    E :: ctor ->  (Output ctor -> b) -> Eff u (Do ctor) b
     -- TODO: Replace with alternate Arrs
-    A :: GraphEff u i (a -> b) -> GraphEff u j a -> GraphEff u (i :<*> j) b
-    B :: GraphEff u i a ->  Arrs u j a b -> GraphEff u (i :>>= j) b
+    A :: Eff u i (a -> b) -> Eff u j a -> Eff u (i :<*> j) b
+    B :: Eff u i a ->  Arrs u j a b -> Eff u (i :>>= j) b
 
-instance KEffect (GraphEff u) where
-    type Unit (GraphEff u) = 'Pure
-    type Inv  (GraphEff u) i j = ()
-    type Plus (GraphEff u) i j = GraphBind i j
+instance KEffect (Eff u) where
+    type Unit (Eff u) = 'Pure
+    type Inv  (Eff u) i j = ()
+    type Plus (Eff u) i j = GraphBind i j
 
-instance Fmappable (GraphEff u) where
-    type Fmap    (GraphEff u) i   = GraphMap i
+instance Fmappable (Eff u) where
+    type Fmap    (Eff u) i = GraphMap i
 
-instance Applyable (GraphEff u) where
-    type Apply (GraphEff u) i j = GraphAp i j
+instance Applyable (Eff u) where
+    type Apply (Eff u) i j = GraphAp i j
 
-instance Bindable (GraphEff u) where
-    type Bind  (GraphEff u) i j = GraphBind i j
-
+instance Bindable (Eff u) where
+    type Bind  (Eff u) i j = GraphBind i j
 
 type family GraphMap (i :: k) :: k where
-    GraphMap      Pure  = Pure
-    GraphMap      (Do i) = Do i 
-    GraphMap  (i :<*> j) = (GraphMap i) :<*> j
-    GraphMap  (i :>>= j) = i :>>= (TNode j (TLeaf Pure))
+    GraphMap   'Pure        = Pure
+    GraphMap      (Do i)    = Do i 
+    GraphMap  (i :<*> j)    = (GraphMap i) :<*> j
+    GraphMap  (i :>>= j)    = i :>>= (TNode j (TLeaf Pure))
 
 type family GraphAp (i :: k) (j :: k) :: k where
-    GraphAp      Pure       k = GraphMap k
-    GraphAp  (i :<*> j)  Pure = (GraphMap i) :<*> j
-    GraphAp  (i :>>= j)  Pure = i :>>= (TNode j (TLeaf Pure))
-    GraphAp          i   Pure = i
-    GraphAp          i       j = i :<*> j
+    GraphAp      Pure    k     = GraphMap k
+    GraphAp  (i :<*> j) Pure   = (GraphMap i) :<*> j
+    GraphAp  (i :>>= j) Pure   = i :>>= (TNode j (TLeaf Pure))
+    GraphAp          i   Pure  = i
+    GraphAp          i   k     = i :<*> k
 
 type family GraphBind (i :: k) (j :: k) :: k where
-    GraphBind        Pure  Pure =  Pure
-    GraphBind        Pure      j = j
-    GraphBind  (x :>>= xs)      j = x :>>= (TNode xs (TLeaf j))
-    GraphBind           i       j = i :>>= TLeaf j
+    GraphBind        Pure  'Pure =  Pure
+    GraphBind        Pure      k = k
+    GraphBind  (x :>>= xs)     k = x :>>= (TNode xs (TLeaf k))
+    GraphBind           i      k = i :>>= TLeaf k
 
-instance KFunctor (GraphEff u) where
+instance KFunctor (Eff u) where
     {-# INLINE kmap #-}
     kmap f (V x) = V (f x)
     kmap f (E u q)  = E u (f . q)
     kmap f (A a as) = A (kmap (f .) a) as
     kmap f (B u q)  = B u (q |> (V . f))
 
-instance KPointed (GraphEff u) where
+instance KPointed (Eff u) where
     {-# INLINE kreturn #-}
     kreturn = V
 
-instance KApplicative (GraphEff u) where
+instance KApplicative (Eff u) where
     {-# INLINE kap #-}
     V f `kap` m = kmap f m
     E u q `kap` k = case k of
@@ -115,17 +113,17 @@ instance KApplicative (GraphEff u) where
       B _ _ -> A (B u q) k
       A _ _ -> A (B u q) k
 
-instance KMonad (GraphEff u) where
+instance KMonad (Eff u) where
     {-# INLINE kbind #-}
     (V x)    `kbind` k = k x
     (E u q)  `kbind` k = B (E u q) (tsingleton k)
     (A a as) `kbind` k = B (A a as) (tsingleton k)
     (B u q)  `kbind` k = B u (q |> k)
 
-instance KMonadFail (GraphEff u) where
+instance KMonadFail (Eff u) where
     kfail = error
 
--- type role FTCQueue representational phantom representational nominal
+-- class type role FTCQueue representational phantom representational nominal
 data FTCQueue m (i :: EffQueue Effect) a b where
         Leaf :: (a -> m i b) -> FTCQueue m (TLeaf i) a b
         Node :: FTCQueue m i a x -> FTCQueue m j x b -> FTCQueue m (TNode i j) a b
@@ -171,5 +169,8 @@ tviewl (Node t1 t2) = go SPEC t1 t2
       go sPEC (Node tl1 tl2) tr = go sPEC tl1 (Node tl2 tr)
 
 {-# INLINE send #-}
-send :: ctor -> GraphEff u (Do ctor) (Output ctor)
+send :: ctor -> Eff u (Do ctor) (Output ctor)
 send t = E t id
+
+
+

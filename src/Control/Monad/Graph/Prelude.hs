@@ -10,6 +10,8 @@
 -- Needed for poly-kinded "f :: k -> * -> *"
 {-# LANGUAGE PolyKinds #-}
 
+{-# LANGUAGE StrictData #-}
+
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
 module Control.Monad.Graph.Prelude (
@@ -19,20 +21,29 @@ module Control.Monad.Graph.Prelude (
     pure, (<*>), (*>), (<*), 
     -- Monad
     return, (>>=), (=<<), (>>),
+    -- MonadFail
+    fail,
+    -- MonadPlus, MonadOr    
+    (<+>), (<|>),
+        
     -- Extra operators:
     (<**>), liftA, liftA2, liftA3,
     join, liftM, liftM2, liftM3, liftM4, liftM5, ap,
 
-    mapM_, sequence_
+    mapM_, sequence_,
+
+    module X
     ) where
 
-import Prelude hiding (
+import Prelude as X hiding (
     -- Functor
     fmap, (<$), (<$>),
     -- Applicative
     pure, (<*>), (*>), (<*), 
     -- Monad
     return, (>>=), (=<<), (>>),
+    -- MonadFail
+    fail,
 
     mapM_, sequence_
     )
@@ -74,9 +85,21 @@ return = kreturn
 (=<<) :: (KMonad f, Inv f i j) => (a -> f j b) -> f i a -> f (Bind f i j) b
 (=<<) = flip (>>=)
 
+fail :: KMonadFail f => String -> f (Fail f) i
+fail = kfail
+
+(<+>) :: (KMonadPlus f, _) => f i a -> f j a -> f (Plus f i j) a
+(<+>) = kplus
+
+(<|>) :: (KMonadOr f, _) => f i a -> f j a -> f (Or f i j) a
+(<|>) = korelse
+
 -- Simplified binding, what GHC.Base would like to do but cannot for backwards compatbility.
 (>>) :: (KApplicative f, _) => f i a -> f j b -> f (Then f i j) b
 (>>) = kthen
+
+join :: (KMonad f, Inv f i j) => f i (f j b) -> f (Join f i j) b
+join = kjoin
 
 (<**>) :: (KApplicative f, _) => f i1 a -> f i2 (a -> b) -> f (Apply f (Apply f (Unit f) i1) i2) b
 (<**>) = liftA2 (flip ($))
@@ -89,9 +112,6 @@ liftA2 f a b = pure f <*> a <*> b
 
 liftA3 :: (KApplicative f, _) => (a1 -> a2 -> a3 -> b) -> f i1 a1 -> f i2 a2 -> f i3 a3 -> f (Apply f (Apply f (Apply f (Unit f) i1) i2) i3) b
 liftA3 f a b c = pure f <*> a <*> b <*> c
-
-join :: (KMonad f, Inv f i j) => f i (f j b) -> f (Join f i j) b
-join = kjoin
 
 liftM :: (KApplicative f, _) => (t -> b) -> f j t -> f (Fmap f j) b
 liftM f m1              = do { x1 <- m1; return (f x1) }

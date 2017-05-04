@@ -1,6 +1,3 @@
-[submodule "graphted"]
-	path = graphted
-	url = https://github.com/AaronFriel/graphted.git
 [submodule "dep/graphted"]
 	path = dep/graphted
-	url = https://github.com/AaronFriel/graphted.git
+	url = ../graphted.git

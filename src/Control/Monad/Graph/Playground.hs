@@ -3,6 +3,7 @@
 {-# LANGUAGE ApplicativeDo #-}
 
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeInType #-}
 
@@ -11,6 +12,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE LiberalTypeSynonyms #-}
 
 {-# LANGUAGE ConstraintKinds #-}
@@ -28,7 +30,9 @@
 
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE NoMonoLocalBinds #-}
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE InstanceSigs #-}
+
 
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE MagicHash #-}
@@ -48,14 +52,14 @@ import GHC.Exts (Constraint)
 import GHC.TypeLits hiding (type (*))
 import Data.Kind (type (*))
 import Data.Proxy
-import GHC.Types (SPEC(..))
+import GHC.Types (SPEC(..), TYPE (..), RuntimeRep (..))
 -- import Data.Singletons.Prelude
 -- import Data.Singletons.Prelude.Bool
 -- import Data.Singletons.TypeRepStar
 -- import Data.Singletons.Decide
 import Unsafe.Coerce
 -- import Control.Lens hiding ((%~), (:<))
-import qualified Debug.Trace as Debug (trace, traceShow)
+import qualified Debug.Trace as Debug (trace, traceIO, traceShow)
 import Data.IORef
 import System.IO.Unsafe
 
@@ -71,6 +75,8 @@ import Prelude hiding (
     fail
     )
 
+import qualified Prelude as Prelude
+
 
 infixl 4  <$
 infixl 1  >>, >>=
@@ -78,51 +84,52 @@ infixl 1  >>, >>=
 infixl 4 <*>, <*, *>
 
 {-# INLINE fmap #-}
-fmap :: (a -> b) -> GraphEff u i a -> GraphEff u (GraphMap i) b
+fmap :: (a -> b) -> Eff u i a -> Eff u (GraphMap i) b
 fmap = G.fmap
 
 {-# INLINE (<$) #-}
-(<$) :: b -> GraphEff u i a -> GraphEff u (GraphMap i) b
+(<$) :: b -> Eff u i a -> Eff u (GraphMap i) b
 (<$) = (G.<$)
 
 {-# INLINE (<$>) #-}
-(<$>) :: (a -> b) -> GraphEff u i a -> GraphEff u (GraphMap i) b
+(<$>) :: (a -> b) -> Eff u i a -> Eff u (GraphMap i) b
 (<$>) = G.fmap
 
 {-# INLINE pure #-}
-pure :: a -> GraphEff u 'Pure a
+pure :: a -> Eff u 'Pure a
 pure = G.pure
 
 {-# INLINE (<*>) #-}
-(<*>) :: GraphEff u i (a -> b) -> GraphEff u j a -> GraphEff u (GraphAp i j) b
+(<*>) :: Eff u i (a -> b) -> Eff u j a -> Eff u (GraphAp i j) b
 (<*>) = (G.<*>)
 
 {-# INLINE return #-}
-return :: a -> GraphEff u 'Pure a
+return :: a -> Eff u 'Pure a
 return = G.pure
 
+
 {-# INLINE (>>=) #-}
-(>>=) :: GraphEff u i a -> (a -> GraphEff u j b) -> GraphEff u (GraphBind i j) b
+(>>=) :: Eff u i a -> (a -> Eff u j b) -> Eff u (GraphBind i j) b
 (>>=) = (G.>>=)
 
 {-# INLINE join #-}
-join :: GraphEff u i (GraphEff u j b) -> GraphEff u (GraphBind i j) b
+join :: Eff u i (Eff u j b) -> Eff u (GraphBind i j) b
 join = G.join
 
 {-# INLINE (<*) #-}
-(<*) :: GraphEff u i a -> GraphEff u j b -> GraphEff u (GraphAp (GraphMap i) j) a
+(<*) :: Eff u i a -> Eff u j b -> Eff u (GraphAp (GraphMap i) j) a
 (<*) = (G.<*)
 
 {-# INLINE (*>) #-}
-(*>) :: GraphEff u i a -> GraphEff u j b -> GraphEff u (GraphAp (GraphMap i) j) b
+(*>) :: Eff u i a -> Eff u j b -> Eff u (GraphAp (GraphMap i) j) b
 (*>)= (G.*>)
 
 {-# INLINE (>>) #-}
-(>>) :: GraphEff u i a -> GraphEff u j b -> GraphEff u (GraphAp (GraphMap i) j) b
+(>>) :: Eff u i a -> Eff u j b -> Eff u (GraphAp (GraphMap i) j) b
 m >> k = (G.*>) m k
 
 {-# INLINE (=<<) #-}
-(=<<) :: (a -> GraphEff u j b) -> GraphEff u i a -> GraphEff u (GraphBind i j) b
+(=<<) :: (a -> Eff u j b) -> Eff u i a -> Eff u (GraphBind i j) b
 (=<<) = flip (>>=)
 
 fail = G.fail
@@ -139,7 +146,7 @@ fail = G.fail
 data Reader e where Ask :: Reader e
 type instance Output (Reader e) = e
 
-ask :: forall e u. GraphEff u ('Do (Reader e)) e
+ask :: forall e u. Eff u ('Do (Reader e)) e
 ask = send Ask
 
 newtype Writer o where Tell :: o -> Writer o
@@ -147,53 +154,146 @@ newtype Writer o where Tell :: o -> Writer o
 
 type instance Output (Writer o) = ()
 
-tell :: o -> GraphEff u ('Do (Writer o)) ()
+tell :: o -> Eff u ('Do (Writer o)) ()
 tell = send . Tell
 
 data Get s = Get
 newtype Put s where Put :: s -> Put s
 
 {-# INLINE get #-}
-get :: forall e u. GraphEff u ('Do (Get e)) e
+get :: forall e u. Eff u ('Do (Get e)) e
 get = send Get
 
 {-# INLINE put #-}
-put :: forall e u. e -> GraphEff u ('Do (Put e)) ()
+put :: forall e u. e -> Eff u ('Do (Put e)) ()
 put = send . Put
 
 type instance Output (Get s) = s
 type instance Output (Put s) = ()
 
-data Call (n :: Nat) a where
-    Call :: GraphEff u i a -> Call n a
+-- type family AddCall u2 i2 a u1 i1 where
+--     AddCall ('Graph ps2) i2 a ('Graph ps1) i1 = 
+--         Eff ('Graph ( '(1, i2) ': Interleave (EvenPaths ps2) (OddPaths ps1) )) i1 a
 
-call :: forall n u i a. GraphEff u i a -> GraphEff u ('Do (Call n a)) a
-call = send . Call
+-- type family SimpleCall u2 i2 a = r | r -> u2 i2 a where
+--     SimpleCall ('Graph ps) i a = 
+--         Eff ('Graph ( '(1, i) ': ps) ) ('Do (Call 1 a)) a
+
+
+-- We need a strong existential type here that verifies for each effect in the universe u
+-- there is a handler for that effect. That way we can know how to run the call effect.
+
+
+genCall :: HVect ts -> HVect (Tagged Trace ': ts)
+genCall = (Tagged () :&:)
+
+-- algCall :: forall u b. (Call n a) -> (Output (Call n a) -> b) -> (HVect s -> (# b, HVect s #))
+-- algCall (Call a n) q = \vec -> (q )
+
+simpleEff :: Eff U i a -> Eff U i a
+simpleEff a = a
+
+test2 :: Int -> Eff U ('Do (Get Int)) Int
+test2 a = simpleEff $ do
+    b <- get @Int
+    return (a + b)
+
+-- type omitted, but inferred. See below:
+test1 a = do
+    b <- get @Int
+    _ <- put @Int (b+1)
+    r <- call $ test2 a
+    return (b + r)
+
+data StdReader (e :: *)
+
+instance HandlerBase (StdReader e) where
+    type AssocData (StdReader e) lower = (e, lower)
+
+    getLower = snd
+
+instance EffectHandler (StdReader e) (Reader e) where
+    handle Ask q = \(e, l) -> (# q e, (e, l) #)
+
+data StdWriter (o :: *)
+
+instance HandlerBase (StdWriter o) where
+    type AssocData (StdWriter o) s = ([o], s)
+
+    getLower = snd
+
+instance EffectHandler (StdWriter o) (Writer o) where
+    handle (Tell o') q = \(o, l) -> (# q (), (o' : o, l) #)
+
+data StdState (s :: *)
+
+instance HandlerBase (StdState s) where
+    type AssocData (StdState s) lower = (s, lower)
+
+    getLower = snd
+
+instance EffectHandler (StdState s) (Put s) where
+    handle (Put s) q = \(_, l) -> (# q (), (s, l) #)
+
+instance EffectHandler (StdState s) (Get s) where
+    handle  Get    q = \(s, l) -> (# q s, (s, l) #)
+
+data StdTrace
+
+instance HandlerBase (StdTrace) where
+    type AssocData (StdTrace) lower = lower
+
+    getLower = id
+
+instance EffectHandler (StdTrace) (Trace) where
+    handle (Trace str) q = \l -> seq (unsafePerformIO (Debug.traceIO str)) (# q (), l #)
+
+-- This type is inferred!
+testCall
+  :: Int
+     -> Eff
+          ('Graph
+
+             '[ 
+                -- test1, note, it calls test2 at the end
+                -- and the sequence of operations of test1 is encoded in the type.
+                '(1, ('Do (Get Int) 
+                      ':>>= 'TNode ('TLeaf ('Do (Put Int)))
+                                      ('TLeaf 'Pure))
+                      ':<*> 'Do (Call 2 Int))
+                -- test2, which performs a simple get.
+              , '(2, 'Do (Get Int))]
+              '[]
+            )
+          ('Do (Get Int) ':>>= 'TLeaf ('Do (Put Int) ':<*> 'Do (Call 1 Int)))
+          Int
+testCall a = do
+    b <- get @Int 
+    _ <- put @Int (a * b)
+    r <- call (test1 b)
+    return r
 
 type instance Output (Call i a) = a
 
 -- -- Type is inferred.
--- -- t1 :: GraphEff u ('Aps ('Aps ('Do (Reader Int)) ('Do (Reader Float))) ('Do (Reader String))) (Int, Float, String)
--- -- t1 :: GraphEff U (('Do (Reader Int) ':<*> 'Do (Reader Float)) ':<*> 'Do (Reader String)) (Int, Float, String)
+-- -- t1 :: Eff u ('Aps ('Aps ('Do (Reader Int)) ('Do (Reader Float))) ('Do (Reader String))) (Int, Float, String)
+-- -- t1 :: Eff U (('Do (Reader Int) ':<*> 'Do (Reader Float)) ':<*> 'Do (Reader String)) (Int, Float, String)
 -- t1 = do
 --     a <- ask @Int
 --     b <- ask @Float
 --     c <- ask @String
 --     G.pure (a, b, c)
 
--- -- t2 :: GraphEff U ('Do (Reader Int) ':>>= 'TLeaf ('Do (Writer String))) Int
+-- -- t2 :: Eff U ('Do (Reader Int) ':>>= 'TLeaf ('Do (Writer String))) Int
 t2 = do 
     a <- ask @Int
     tell (show a)
     G.pure (a + 1)
 
--- simpleEff :: GraphEff U i a -> GraphEff U i a
--- simpleEff a = a
-
--- auto :: ((GraphEff u i a -> GraphEff u ('Do (Call 0 a)) a) -> GraphEff u i a) -> GraphEff u i a
+-- auto :: ((Eff u i a -> Eff u ('Do (Call 0 a)) a) -> Eff u i a) -> Eff u i a
 -- auto m = m undefined
 
--- tloop :: GraphEff u ('Do (Writer [Char]) ':<*> 'Do (Call 0 a)) a
+-- tloop :: Eff u ('Do (Writer [Char]) ':<*> 'Do (Call 0 a)) a
 -- tloop = auto $ \cc -> do
 --     tell "Foobar"
 --     cc tloop
@@ -238,20 +338,6 @@ instance {-# OVERLAPPABLE #-} HasTag t xs => HasTag t (Tagged t1 ': xs) where
 
 data State s
 
-type family TagOf (effect :: *) :: *
-type instance TagOf (Reader e) = Reader e
-type instance TagOf (Writer o) = Writer o
-type instance TagOf (State s) = State s
-type instance TagOf (Put s) = State s
-type instance TagOf (Get s) = State s
-
-type family TagData (effect :: *) :: *
-
-type instance TagData (Writer a) = [a]
-type instance TagData (Reader e) = Output (Reader e)
-type instance TagData (Reader e) = Output (Reader e)
-type instance TagData (State s) = IORef s
-
 class HasAlg e es where
     getAlg :: HVect es -> Alg e
 
@@ -288,7 +374,6 @@ algPut :: forall s. EffectAlgebra (Put s)
 algPut (Put s) q = \vec -> 
     let ref = getVec @(State s) vec
     in unsafePerformIO (writeIORef ref s) `seq` (# q (), vec #)
-    -- (q (), mutVec @(State s) (\ref -> unsafePerformIO (writeIORef ref s)) vec)
 
 {-# INLINE algGet #-}
 algGet :: forall s. IORef (Output (Get s)) ~ TagData (State s) => EffectAlgebra (Get s)
@@ -296,7 +381,6 @@ algGet (Get) q = \vec ->
     let ref = getVec @(State s) vec
         val = unsafePerformIO (readIORef ref)
     in (# q $! val, vec #)
--- algGet (Get) q = \vec -> (q (getVec @(State s) vec), vec)
 
 addAlgState :: forall s ts. HVect ts -> HVect (Alg (Put s) ': Alg (Get s) ': ts)
 addAlgState vec = Alg (algPut) :&: Alg (algGet) :&: vec
@@ -330,8 +414,12 @@ instance (HasTag (TagOf (Get s)) ts, TagData (State s) ~ IORef (Output (Get s)))
 instance (HasTag (TagOf (Put s)) ts, TagData (State s) ~ IORef (Output (Get s))) => AlgebraInstance (Put s) ts where
     {-# INLINABLE runAlgebra #-}
     runAlgebra (Put s) q = \vec -> 
-        let ref = getVec @(State s) vec
-        in unsafePerformIO (writeIORef ref s) `seq` (# q (), vec #)
+        let ref = unsafePerformIO $ newIORef s
+        in ref `seq` (# q (), putVec @(State s) ref vec #)
+    -- If deterministic, can directly mutate:
+    -- runAlgebra (Put s) q = \vec -> 
+    --     let ref = getVec @(State s) vec
+    --     in unsafePerformIO (writeIORef ref s) `seq` (# q (), vec #)
 
 {-# INLINE algTrace #-}
 algTrace :: EffectAlgebra (Trace)
@@ -340,10 +428,23 @@ algTrace (Trace s) q = \vec -> Debug.trace s () `seq` (# q (), vec #)
 genTrace :: HVect ts -> HVect (Tagged Trace ': ts)
 genTrace = (Tagged () :&:)
 
-traceShow :: Show s => s -> GraphEff u ('Do Trace) ()
+traceShow :: Show s => s -> Eff u ('Do Trace) ()
 traceShow = send . Trace . show
 
 trace = send . Trace
+
+type family HasTagsForTree i ts :: Constraint where
+    HasTagsForTree 'Pure      ts = ()
+    HasTagsForTree ('Do e)    ts = (AlgebraInstance e ts, HasTag (TagOf e) ts)
+    HasTagsForTree (i :>>= j) ts = (HasTagsForTree i ts, HasTagsForTree (FViewL j) ts)
+    HasTagsForTree (i :<*> j) ts = (HasTagsForTree i ts, HasTagsForTree j ts)
+
+type family HasTagsForPaths u ts :: Constraint where 
+    HasTagsForPaths               '[]   ts = ()
+    HasTagsForPaths ( '(n1, p1) ': ps ) ts = (HasTagsFor p1 ts, HasTagsForPaths ps ts)
+
+type family HasTagsForU u ts :: Constraint where
+    HasTagsForU ('Graph ps) ts = HasTagsForPaths ps ts
 
 type family HasTagsFor i ts :: Constraint where
     HasTagsFor 'Pure      ts = ()
@@ -351,34 +452,34 @@ type family HasTagsFor i ts :: Constraint where
     HasTagsFor (i :>>= j) ts = (HasTagsFor i ts, HasTagsFor (FViewL j) ts)
     HasTagsFor (i :<*> j) ts = (HasTagsFor i ts, HasTagsFor j ts)
 
-run :: forall i u ts a. HasTagsFor i ts => HVect ts -> GraphEff u i a -> (a, HVect ts)
+run :: forall i u ts a. HasTagsFor i ts => HVect ts -> Eff u i a -> (a, HVect ts)
 run ts m = case run' SPEC ts m of
     (# r, ts' #) -> (r, ts')
 
 {-# INLINABLE run' #-}
-run' :: forall i u ts a. HasTagsFor i ts => SPEC -> HVect ts -> GraphEff u i a -> (# a, HVect ts #)
+run' :: forall i u ts a. HasTagsFor i ts => SPEC -> HVect ts -> Eff u i a -> (# a, HVect ts #)
 run' _ ts (V x) = (# x, ts #)
 run' _ ts m@(E _ _) = go m
     where
         {-# INLINE go #-}
-        go :: forall e. (AlgebraInstance e ts, HasTag (TagOf e) ts) => GraphEff u ('Do e) a -> (# a, HVect ts #)
+        go :: forall e. (AlgebraInstance e ts, HasTag (TagOf e) ts) => Eff u ('Do e) a -> (# a, HVect ts #)
         go (E u q) = runAlgebra @e u q ts
 run' sPEC ts m@(B _ _) = go sPEC m
     where 
         {-# INLINE go #-}
-        go :: forall i j. HasTagsFor (i :>>= j) ts => SPEC -> GraphEff u (i :>>= j) a -> (# a, HVect ts #)
+        go :: forall i j. HasTagsFor (i :>>= j) ts => SPEC -> Eff u (i :>>= j) a -> (# a, HVect ts #)
         go sPEC (B u q) = loop sPEC (run' @i sPEC ts u) q
             where
                 {-# INLINABLE loop #-}
                 loop :: forall x k. (HasTagsFor (FViewL k) ts)
-                     => SPEC -> (# x, HVect ts #) -> FTCQueue (GraphEff u) k x a -> (# a, HVect ts #)
+                     => SPEC -> (# x, HVect ts #) -> FTCQueue (Eff u) k x a -> (# a, HVect ts #)
                 loop sPEC (# x, ts' #) q = case tviewl q of
                     TOne q'  -> run' sPEC ts' (q' x)
                     q' :< qs' -> loop sPEC (run' sPEC ts' (q' x)) qs'
 run' sPEC ts m@(A _ _) = go sPEC m
     where
         {-# INLINE go #-}
-        go :: forall i j. HasTagsFor (i :<*> j) ts => SPEC -> GraphEff u (i :<*> j) a -> (# a, HVect ts #)
+        go :: forall i j. HasTagsFor (i :<*> j) ts => SPEC -> Eff u (i :<*> j) a -> (# a, HVect ts #)
         go sPEC (A f a) = 
             let (# f', ts'  #) = run' @i sPEC ts f
                 (# a', ts'' #) = run' @j sPEC ts' a
@@ -386,11 +487,11 @@ run' sPEC ts m@(A _ _) = go sPEC m
 
 -- class RunEffect i where
 --     -- {-# INLINABLE run #-}
---     run :: (HasTagsFor i ts) => HVect ts -> GraphEff u i a -> (a, HVect ts)
+--     run :: (HasTagsFor i ts) => HVect ts -> Eff u i a -> (a, HVect ts)
 --     run ts g = case runS ts g of
 --         (# a, t #) -> (a, t)
 
---     runS :: (HasTagsFor i ts) => HVect ts -> GraphEff u i a -> (# a, HVect ts #)
+--     runS :: (HasTagsFor i ts) => HVect ts -> Eff u i a -> (# a, HVect ts #)
 
 -- instance RunEffect 'Pure where
 --     -- {-# INLINABLE runS #-}
@@ -403,25 +504,25 @@ run' sPEC ts m@(A _ _) = go sPEC m
 -- instance (BindStep (i :>>= j)) => RunEffect (i :>>= j) where
 --     -- {-# INLINABLE runS #-}
 --     runS :: forall ts a u. (HasTagsFor (i :>>= j) ts, BindStep (i :>>= j))
---          => HVect ts -> GraphEff u (i ':>>= j) a -> (# a, HVect ts #)
+--          => HVect ts -> Eff u (i ':>>= j) a -> (# a, HVect ts #)
 --     runS ts (B u q) = go (runS @i ts u) q
 --       where 
 --         -- These constraints can't be inferred.
 --         -- {-# INLINABLE go #-}
 --         go :: forall x k. (BindStep (FViewL k), RunEffect (FViewL k), HasTagsFor (FViewL k) ts) 
---            => (# x, HVect ts #) -> FTCQueue (GraphEff u) k x a -> (# a, HVect ts #)
+--            => (# x, HVect ts #) -> FTCQueue (Eff u) k x a -> (# a, HVect ts #)
 --         go (# x, ts' #) q   = case tviewl q of
 --             TOne q'   -> runS ts' (q' x)
 --             q' :< qs' -> go (runS ts' (q' x)) qs'
 --     -- {-# INLINE runS #-}
 --     -- runS :: forall ts a u. (HasTagsFor (i :>>= j) ts, BindStep (i :>>= j))
---     --      => SPEC -> HVect ts -> GraphEff u (i ':>>= j) a -> (# a, HVect ts #)
+--     --      => SPEC -> HVect ts -> Eff u (i ':>>= j) a -> (# a, HVect ts #)
 --     -- runS sPEC ts (B u q) = go sPEC (runS @i sPEC ts u) q
 --     --   where 
 --     --     -- These constraints can't be inferred.
 --     --     {-# INLINE go #-}
 --     --     go :: forall x k. (BindStep (FViewL k), RunEffect (FViewL k), HasTagsFor (FViewL k) ts) 
---     --        => SPEC -> (# x, HVect ts #) -> FTCQueue (GraphEff u) k x a -> (# a, HVect ts #)
+--     --        => SPEC -> (# x, HVect ts #) -> FTCQueue (Eff u) k x a -> (# a, HVect ts #)
 --     --     go sPEC (# x, ts' #) q   = case tviewl q of
 --     --         TOne q'   -> runS sPEC ts' (q' x)
 --     --         q' :< qs' -> go sPEC (runS sPEC ts' (q' x)) qs'
